@@ -466,7 +466,7 @@ export function getHistory(vehicleId: number): MaintenanceRecord[] {
 }
 
 export function getSettings(): AppSettings {
-  const defaultRepo = (import.meta.env.VITE_GITHUB_REPO as string | undefined) || 'site3facil-a11y/carcontrol';
+  const defaultRepo = (import.meta.env.VITE_GITHUB_REPO as string | undefined) || 'wilsonlimamn/car-control';
   if (!dbInstance) return { theme: 'amber', bgStyle: 'gradient', githubRepo: defaultRepo };
   let theme: AppSettings['theme'] = 'amber';
   let bgStyle: AppSettings['bgStyle'] = 'gradient';
