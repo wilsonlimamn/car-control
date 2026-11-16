@@ -1,0 +1,535 @@
+@import "tailwindcss";
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+@layer base {
+  :root {
+    --font-sans: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
+    --font-mono: 'JetBrains Mono', monospace;
+
+    /* Default Theme: Cyber Amber */
+    --accent: #f59e0b;
+    --accent-rgb: 245, 158, 11;
+    --accent-glow: rgba(245, 158, 11, 0.25);
+    --accent-muted: rgba(245, 158, 11, 0.12);
+    --accent-border: rgba(245, 158, 11, 0.45);
+    --accent-text: #fbbf24;
+    --accent-fg: #000000;
+
+    /* Default Surface Tokens (Dark Cockpit) */
+    --text-primary: #f8fafc;
+    --text-secondary: #cbd5e1;
+    --text-muted: #94a3b8;
+    --card-bg: rgba(18, 22, 31, 0.86);
+    --card-border: rgba(255, 255, 255, 0.09);
+    --card-shadow: 0 8px 28px 0 rgba(0, 0, 0, 0.45);
+    --subcard-bg: rgba(0, 0, 0, 0.5);
+    --display-bg: rgba(0, 0, 0, 0.88);
+    --nav-bg: rgba(9, 12, 19, 0.96);
+    --modal-bg: #10141f;
+    --input-bg: rgba(0, 0, 0, 0.65);
+    --btn-sec-bg: rgba(255, 255, 255, 0.09);
+    --btn-sec-hover: rgba(255, 255, 255, 0.17);
+    --border-main: rgba(255, 255, 255, 0.16);
+    --border-subtle: rgba(255, 255, 255, 0.1);
+    --ring-track: rgba(255, 255, 255, 0.1);
+    --status-ok-text: #34d399;
+    --status-warn-text: #fbbf24;
+    --status-exp-text: #f87171;
+  }
+
+  [data-color-theme="amber"] {
+    --accent: #f59e0b;
+    --accent-rgb: 245, 158, 11;
+    --accent-glow: rgba(245, 158, 11, 0.28);
+    --accent-muted: rgba(245, 158, 11, 0.12);
+    --accent-border: rgba(245, 158, 11, 0.5);
+    --accent-text: #fbbf24;
+    --accent-fg: #000000;
+  }
+
+  [data-color-theme="emerald"] {
+    --accent: #10b981;
+    --accent-rgb: 16, 185, 129;
+    --accent-glow: rgba(16, 185, 129, 0.28);
+    --accent-muted: rgba(16, 185, 129, 0.12);
+    --accent-border: rgba(16, 185, 129, 0.5);
+    --accent-text: #34d399;
+    --accent-fg: #000000;
+  }
+
+  [data-color-theme="crimson"] {
+    --accent: #ef4444;
+    --accent-rgb: 239, 68, 68;
+    --accent-glow: rgba(239, 68, 68, 0.28);
+    --accent-muted: rgba(239, 68, 68, 0.12);
+    --accent-border: rgba(239, 68, 68, 0.5);
+    --accent-text: #f87171;
+    --accent-fg: #000000;
+  }
+
+  [data-color-theme="cobalt"] {
+    --accent: #06b6d4;
+    --accent-rgb: 6, 182, 212;
+    --accent-glow: rgba(6, 182, 212, 0.28);
+    --accent-muted: rgba(6, 182, 212, 0.12);
+    --accent-border: rgba(6, 182, 212, 0.5);
+    --accent-text: #22d3ee;
+    --accent-fg: #000000;
+  }
+
+  [data-color-theme="violet"] {
+    --accent: #a855f7;
+    --accent-rgb: 168, 85, 247;
+    --accent-glow: rgba(168, 85, 247, 0.28);
+    --accent-muted: rgba(168, 85, 247, 0.12);
+    --accent-border: rgba(168, 85, 247, 0.5);
+    --accent-text: #c084fc;
+    --accent-fg: #000000;
+  }
+
+  [data-color-theme="navy"] {
+    --accent: #1d4ed8;
+    --accent-rgb: 29, 78, 216;
+    --accent-glow: rgba(37, 99, 235, 0.45);
+    --accent-muted: rgba(29, 78, 216, 0.22);
+    --accent-border: rgba(59, 130, 246, 0.72);
+    --accent-text: #60a5fa;
+    --accent-fg: #ffffff;
+  }
+
+  /* ============================================================ */
+  /* 4 ESTILOS DE FUNDO: Branco Dia, Cinza, Degradê, Preto OLED   */
+  /* ============================================================ */
+
+  /* 1. BRANCO DIA (Modo Diurno Anti-Reflexo p/ Sol Forte) */
+  [data-bg-style="white"] {
+    background-color: #e8edf4;
+    background-image: linear-gradient(180deg, #f3f6fa 0%, #e4eaf2 100%);
+    background-attachment: fixed;
+
+    --text-primary: #0f172a;
+    --text-secondary: #334155;
+    --text-muted: #475569;
+    --card-bg: rgba(255, 255, 255, 0.94);
+    --card-border: rgba(15, 23, 42, 0.12);
+    --card-shadow: 0 8px 24px 0 rgba(15, 23, 42, 0.08);
+    --subcard-bg: #f1f5f9;
+    --display-bg: #f8fafc;
+    --nav-bg: rgba(248, 250, 252, 0.98);
+    --modal-bg: #ffffff;
+    --input-bg: #f1f5f9;
+    --btn-sec-bg: #e2e8f0;
+    --btn-sec-hover: #cbd5e1;
+    --border-main: rgba(15, 23, 42, 0.16);
+    --border-subtle: rgba(15, 23, 42, 0.1);
+    --ring-track: rgba(15, 23, 42, 0.12);
+    --status-ok-text: #047857;
+    --status-warn-text: #b45309;
+    --status-exp-text: #b91c1c;
+  }
+
+  /* Contraste reforçado das cores de destaque quando sobre fundo Branco Dia */
+  [data-bg-style="white"][data-color-theme="amber"],
+  [data-bg-style="white"] {
+    --accent-text: #b45309;
+  }
+  [data-bg-style="white"][data-color-theme="emerald"] {
+    --accent-text: #047857;
+  }
+  [data-bg-style="white"][data-color-theme="crimson"] {
+    --accent-text: #b91c1c;
+  }
+  [data-bg-style="white"][data-color-theme="cobalt"] {
+    --accent-text: #0e7490;
+  }
+  [data-bg-style="white"][data-color-theme="violet"] {
+    --accent-text: #6d28d9;
+  }
+  [data-bg-style="white"][data-color-theme="navy"] {
+    --accent-text: #1d4ed8;
+  }
+
+  /* 2. CINZA TITÂNIO (Cinza Automotivo Fosco Equilibrado) */
+  [data-bg-style="gray"] {
+    background-color: #1f252e;
+    background-image: linear-gradient(180deg, #272e3a 0%, #1a1f27 100%);
+    background-attachment: fixed;
+
+    --text-primary: #f8fafc;
+    --text-secondary: #cbd5e1;
+    --text-muted: #94a3b8;
+    --card-bg: rgba(42, 49, 61, 0.88);
+    --card-border: rgba(255, 255, 255, 0.13);
+    --card-shadow: 0 8px 26px 0 rgba(0, 0, 0, 0.35);
+    --subcard-bg: rgba(20, 25, 32, 0.68);
+    --display-bg: #131820;
+    --nav-bg: rgba(23, 27, 34, 0.98);
+    --modal-bg: #222833;
+    --input-bg: #161b23;
+    --btn-sec-bg: rgba(255, 255, 255, 0.1);
+    --btn-sec-hover: rgba(255, 255, 255, 0.18);
+    --border-main: rgba(255, 255, 255, 0.18);
+    --border-subtle: rgba(255, 255, 255, 0.12);
+    --ring-track: rgba(255, 255, 255, 0.12);
+  }
+
+  /* 3. DEGRADÊ COCKPIT (Degradê Suave na Cor do Tema) */
+  [data-bg-style="gradient"] {
+    background-color: #080c15;
+    background-image:
+      radial-gradient(circle at 12% 18%, rgba(var(--accent-rgb), 0.24) 0%, transparent 48%),
+      radial-gradient(circle at 88% 82%, rgba(var(--accent-rgb), 0.15) 0%, transparent 46%),
+      linear-gradient(135deg, #060912 0%, #131c2e 52%, #080d18 100%);
+    background-attachment: fixed;
+
+    --card-bg: rgba(17, 23, 36, 0.8);
+    --card-border: rgba(255, 255, 255, 0.11);
+    --subcard-bg: rgba(6, 10, 18, 0.62);
+    --display-bg: rgba(5, 8, 15, 0.9);
+    --nav-bg: rgba(9, 13, 22, 0.95);
+    --modal-bg: #0f1523;
+  }
+
+  /* 4. PRETO OLED (Preto Absoluto Noturno) */
+  [data-bg-style="oled"] {
+    background-color: #000000 !important;
+    background-image: none !important;
+
+    --card-bg: #090b0f;
+    --card-border: rgba(255, 255, 255, 0.12);
+    --card-shadow: none;
+    --subcard-bg: #030406;
+    --display-bg: #000000;
+    --nav-bg: #050608;
+    --modal-bg: #090b0f;
+  }
+
+  html, body {
+    font-family: var(--font-sans);
+    min-height: 100dvh;
+    color: var(--text-primary);
+    overscroll-behavior: none;
+    touch-action: manipulation;
+    user-select: none;
+    -webkit-user-select: none;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  button, a, [role="button"] {
+    touch-action: manipulation;
+    user-select: none;
+    -webkit-user-select: none;
+  }
+
+  input, textarea, select {
+    user-select: text;
+    -webkit-user-select: text;
+    touch-action: manipulation;
+  }
+}
+
+.font-mono-numbers {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ============================================================ */
+/* SUPERFÍCIES SEMÂNTICAS (Adaptam-se a Claro / Cinza / Escuro) */
+/* ============================================================ */
+.cockpit-card {
+  background: var(--card-bg);
+  border: 1px solid var(--card-border);
+  box-shadow: var(--card-shadow);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  color: var(--text-primary);
+}
+
+.cockpit-subcard {
+  background: var(--subcard-bg);
+  border: 1px solid var(--border-subtle);
+  color: var(--text-primary);
+}
+
+.cockpit-display {
+  background: var(--display-bg);
+  border: 1px solid var(--border-main);
+  color: var(--text-primary);
+}
+
+.cockpit-nav-bg {
+  background: var(--nav-bg);
+  border-color: var(--border-main);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+}
+
+.cockpit-nav-idle {
+  background: var(--btn-sec-bg);
+  color: var(--text-primary);
+  border: 1px solid var(--border-subtle);
+}
+.cockpit-nav-idle:hover {
+  background: var(--btn-sec-hover);
+}
+
+.cockpit-btn-secondary {
+  background: var(--btn-sec-bg);
+  color: var(--text-primary);
+  border: 2px solid var(--border-main);
+}
+.cockpit-btn-secondary:hover {
+  background: var(--btn-sec-hover);
+}
+
+.cockpit-modal {
+  background: var(--modal-bg);
+  border: 1px solid var(--border-main);
+  color: var(--text-primary);
+}
+
+.cockpit-input {
+  background: var(--input-bg);
+  border: 1px solid var(--border-main);
+  color: var(--text-primary);
+}
+
+.cockpit-text-primary {
+  color: var(--text-primary);
+}
+
+.cockpit-text-secondary {
+  color: var(--text-secondary);
+}
+
+.cockpit-text-muted {
+  color: var(--text-muted);
+}
+
+.cockpit-divider {
+  border-color: var(--border-subtle);
+}
+
+.cockpit-ring-track {
+  stroke: var(--ring-track);
+}
+
+.cockpit-status-ok {
+  color: var(--status-ok-text);
+}
+
+.cockpit-status-warn {
+  color: var(--status-warn-text);
+}
+
+.cockpit-status-exp {
+  color: var(--status-exp-text);
+}
+
+/* Alert Banners adapting cleanly between Dark and White Day mode */
+.cockpit-alert-ok {
+  background: rgba(6, 78, 59, 0.82);
+  border: 2px solid rgba(16, 185, 129, 0.5);
+  box-shadow: 0 0 28px rgba(16, 185, 129, 0.22);
+  color: #a7f3d0;
+}
+[data-bg-style="white"] .cockpit-alert-ok {
+  background: #dcfce7;
+  border-color: #16a34a;
+  box-shadow: 0 6px 20px rgba(22, 163, 74, 0.14);
+  color: #064e3b;
+}
+
+.cockpit-alert-warn {
+  background: rgba(69, 26, 3, 0.9);
+  border: 2px solid rgba(245, 158, 11, 0.6);
+  box-shadow: 0 0 32px rgba(245, 158, 11, 0.3);
+  color: #fde68a;
+}
+[data-bg-style="white"] .cockpit-alert-warn {
+  background: #fef3c7;
+  border-color: #d97706;
+  box-shadow: 0 6px 20px rgba(217, 119, 6, 0.16);
+  color: #78350f;
+}
+
+.cockpit-alert-exp {
+  background: rgba(69, 10, 10, 0.92);
+  border: 2px solid rgba(239, 68, 68, 0.6);
+  box-shadow: 0 0 32px rgba(239, 68, 68, 0.3);
+  color: #fecaca;
+}
+[data-bg-style="white"] .cockpit-alert-exp {
+  background: #fee2e2;
+  border-color: #dc2626;
+  box-shadow: 0 6px 20px rgba(220, 38, 38, 0.16);
+  color: #7f1d1d;
+}
+
+.cockpit-alert-item {
+  background: rgba(0, 0, 0, 0.62);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  color: #ffffff;
+}
+[data-bg-style="white"] .cockpit-alert-item {
+  background: rgba(255, 255, 255, 0.92);
+  border-color: rgba(15, 23, 42, 0.15);
+  color: #0f172a;
+}
+
+.cockpit-glow {
+  box-shadow: 0 0 24px -4px var(--accent-glow);
+}
+
+.cockpit-border-glow {
+  border-color: var(--accent-border);
+  box-shadow: 0 0 20px -2px var(--accent-glow);
+}
+
+/* ============================================================ */
+/* HEAD UNIT LANDSCAPE vs PORTRAIT PHONE LAYOUT                 */
+/* ============================================================ */
+.cockpit-sidebar {
+  display: none;
+}
+
+.cockpit-bottom-nav {
+  display: block;
+  padding-top: 8px;
+  padding-bottom: calc(8px + env(safe-area-inset-bottom, 0px));
+  padding-left: calc(8px + env(safe-area-inset-left, 0px));
+  padding-right: calc(8px + env(safe-area-inset-right, 0px));
+}
+
+.cockpit-main {
+  min-height: 100dvh;
+  padding-top: calc(12px + env(safe-area-inset-top, 0px));
+  padding-right: calc(12px + env(safe-area-inset-right, 0px));
+  padding-left: calc(12px + env(safe-area-inset-left, 0px));
+  padding-bottom: calc(96px + env(safe-area-inset-bottom, 0px));
+}
+
+.cockpit-home-root {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  width: 100%;
+}
+
+.cockpit-home-cols {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 12px;
+  width: 100%;
+}
+
+.cockpit-alerts-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 8px;
+}
+
+.cockpit-numeric-card {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  width: 100%;
+  max-width: 440px;
+}
+
+@media (orientation: landscape) {
+  .cockpit-sidebar {
+    display: flex;
+    width: calc(128px + env(safe-area-inset-left, 0px));
+    padding-left: calc(6px + env(safe-area-inset-left, 0px));
+    padding-right: 6px;
+    padding-top: calc(8px + env(safe-area-inset-top, 0px));
+    padding-bottom: calc(8px + env(safe-area-inset-bottom, 0px));
+  }
+
+  .cockpit-bottom-nav {
+    display: none;
+  }
+
+  .cockpit-main {
+    min-height: 100dvh;
+    padding-left: calc(128px + clamp(8px, 1.2vw, 14px) + env(safe-area-inset-left, 0px));
+    padding-right: calc(clamp(8px, 1.2vw, 14px) + env(safe-area-inset-right, 0px));
+    padding-top: calc(clamp(6px, 1.2dvh, 12px) + env(safe-area-inset-top, 0px));
+    padding-bottom: calc(clamp(6px, 1.2dvh, 12px) + env(safe-area-inset-bottom, 0px));
+  }
+
+  .cockpit-main-home {
+    height: 100dvh;
+    max-height: 100dvh;
+    overflow: hidden;
+  }
+
+  .cockpit-home-root {
+    height: 100%;
+    min-height: 0;
+    overflow: hidden;
+    gap: clamp(8px, 1.3dvh, 12px);
+  }
+
+  .cockpit-home-cols {
+    flex: 1 1 0%;
+    min-height: 0;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    gap: clamp(8px, 1.3dvh, 12px);
+    align-items: stretch;
+  }
+
+  .cockpit-alerts-grid-2 {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .cockpit-alerts-grid-3 {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .cockpit-right-top {
+    flex: 1.22 1 0%;
+    min-height: 0;
+  }
+
+  .cockpit-right-bottom {
+    flex: 0.96 1 0%;
+    min-height: 0;
+  }
+
+  /* Squarer horizontal panels (e.g. 164.5x100mm or 1280x800): slightly taller right column */
+  @media (max-aspect-ratio: 17/10) {
+    .cockpit-home-cols {
+      grid-template-columns: minmax(0, 0.96fr) minmax(0, 1.04fr);
+    }
+
+    .cockpit-right-top {
+      flex: 1.15 1 0%;
+    }
+
+    .cockpit-right-bottom {
+      flex: 1.05 1 0%;
+    }
+  }
+
+  .cockpit-numeric-card {
+    display: grid;
+    grid-template-columns: minmax(0, 1.05fr) minmax(0, 1fr);
+    gap: clamp(10px, 1.8vw, 18px);
+    max-width: min(760px, calc(100vw - 24px - env(safe-area-inset-left, 0px) - env(safe-area-inset-right, 0px)));
+    max-height: calc(100dvh - 16px - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px));
+    align-items: stretch;
+  }
+}
+
+/* Reduced motion support */
+@media (prefers-reduced-motion: reduce) {
+  *, ::before, ::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
