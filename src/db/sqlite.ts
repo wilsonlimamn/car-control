@@ -1,268 +1,348 @@
-import initSqlJs, { Database, SqlJsStatic } from 'sql.js';
-import { AppSettings, MaintenanceRecord, Part, Vehicle } from '../types';
+import type { Database, SqlJsStatic } from 'sql.js';
+import { AppSettings, CategoryType, MaintenanceRecord, Part, ThemeType, BgStyleType, Vehicle } from '../types';
 
+const LS_KEY = 'car_control_store_v1';
 const IDB_NAME = 'car_control_indexeddb';
 const IDB_STORE = 'sqlite_store';
-const IDB_KEY = 'car_control_sqlite_file';
+const IDB_JSON_KEY = 'car_control_json_v1';
+const IDB_LEGACY_SQLITE_KEY = 'car_control_sqlite_file';
 
+interface StoreState {
+  nextVehicleId: number;
+  nextPartId: number;
+  nextHistoryId: number;
+  vehicles: Vehicle[];
+  parts: Part[];
+  history: MaintenanceRecord[];
+  settings: Record<string, string>;
+}
+
+let storeState: StoreState | null = null;
 let SQL: SqlJsStatic | null = null;
-let dbInstance: Database | null = null;
 
-// IndexedDB helpers
 function openIndexedDb(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
-    const request = indexedDB.open(IDB_NAME, 1);
-    request.onupgradeneeded = (event) => {
-      const db = (event.target as IDBOpenDBRequest).result;
-      if (!db.objectStoreNames.contains(IDB_STORE)) {
-        db.createObjectStore(IDB_STORE);
-      }
-    };
-    request.onsuccess = () => resolve(request.result);
-    request.onerror = () => reject(request.error);
+    if (typeof indexedDB === 'undefined') {
+      reject(new Error('IndexedDB indisponível'));
+      return;
+    }
+    const timer = setTimeout(() => {
+      reject(new Error('Timeout ao abrir IndexedDB'));
+    }, 2500);
+
+    try {
+      const request = indexedDB.open(IDB_NAME, 1);
+      request.onupgradeneeded = (event) => {
+        const db = (event.target as IDBOpenDBRequest).result;
+        if (!db.objectStoreNames.contains(IDB_STORE)) {
+          db.createObjectStore(IDB_STORE);
+        }
+      };
+      request.onsuccess = () => {
+        clearTimeout(timer);
+        resolve(request.result);
+      };
+      request.onerror = () => {
+        clearTimeout(timer);
+        reject(request.error);
+      };
+    } catch (err) {
+      clearTimeout(timer);
+      reject(err);
+    }
   });
 }
 
-async function loadFromIndexedDb(): Promise<Uint8Array | null> {
+async function idbGet<T = unknown>(key: string): Promise<T | null> {
   try {
     const idb = await openIndexedDb();
-    return new Promise((resolve) => {
-      const transaction = idb.transaction(IDB_STORE, 'readonly');
-      const store = transaction.objectStore(IDB_STORE);
-      const request = store.get(IDB_KEY);
-      request.onsuccess = () => {
-        if (request.result instanceof Uint8Array) {
-          resolve(request.result);
-        } else if (request.result instanceof ArrayBuffer) {
-          resolve(new Uint8Array(request.result));
-        } else {
+    return await new Promise((resolve) => {
+      const timer = setTimeout(() => resolve(null), 2500);
+      try {
+        const transaction = idb.transaction(IDB_STORE, 'readonly');
+        const store = transaction.objectStore(IDB_STORE);
+        const request = store.get(key);
+        request.onsuccess = () => {
+          clearTimeout(timer);
+          resolve((request.result as T) ?? null);
+        };
+        request.onerror = () => {
+          clearTimeout(timer);
           resolve(null);
-        }
-      };
-      request.onerror = () => resolve(null);
+        };
+      } catch {
+        clearTimeout(timer);
+        resolve(null);
+      }
     });
   } catch {
     return null;
   }
 }
 
-async function saveToIndexedDb(data: Uint8Array): Promise<void> {
+async function idbPut(key: string, value: unknown): Promise<void> {
   try {
     const idb = await openIndexedDb();
-    return new Promise((resolve, reject) => {
+    await new Promise<void>((resolve, reject) => {
       const transaction = idb.transaction(IDB_STORE, 'readwrite');
       const store = transaction.objectStore(IDB_STORE);
-      const request = store.put(data, IDB_KEY);
+      const request = store.put(value, key);
       request.onsuccess = () => resolve();
       request.onerror = () => reject(request.error);
     });
   } catch (err) {
-    console.error('Failed to save to IndexedDB', err);
+    console.warn('IndexedDB save skipped:', err);
   }
 }
 
-function persistDb(): void {
-  if (!dbInstance) return;
+function persistState(): void {
+  if (!storeState) return;
+  const serialized = JSON.stringify(storeState);
   try {
-    const binary = dbInstance.export();
-    saveToIndexedDb(binary);
+    localStorage.setItem(LS_KEY, serialized);
   } catch (err) {
-    console.error('Error exporting SQLite database:', err);
+    console.warn('localStorage save failed:', err);
   }
+  void idbPut(IDB_JSON_KEY, serialized);
 }
 
-/**
- * Initialize SQLite via sql.js with local wasm and IndexedDB persistence
- */
-export async function initDatabase(): Promise<Database> {
-  if (dbInstance) return dbInstance;
-
-  if (!SQL) {
-    SQL = await initSqlJs({
-      locateFile: (file) => (file.endsWith('.wasm') ? '/sql-wasm.wasm' : file),
-    });
-  }
-
-  const savedData = await loadFromIndexedDb();
-
-  if (savedData && savedData.length > 0) {
-    try {
-      dbInstance = new SQL.Database(savedData);
-      // Run migrations in case of missing columns/tables
-      ensureTables(dbInstance);
-      persistDb();
-      return dbInstance;
-    } catch (e) {
-      console.warn('Could not restore database from IndexedDB, creating fresh:', e);
-    }
-  }
-
-  // Create fresh database
-  dbInstance = new SQL.Database();
-  ensureTables(dbInstance);
-  seedDefaultData(dbInstance);
-  persistDb();
-
-  return dbInstance;
-}
-
-function ensureTables(db: Database) {
-  db.run(`
-    CREATE TABLE IF NOT EXISTS vehicles (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      name TEXT NOT NULL,
-      plate TEXT,
-      current_km INTEGER NOT NULL,
-      tank_capacity REAL NOT NULL,
-      fuel_level REAL NOT NULL,
-      avg_consumption REAL NOT NULL,
-      is_active INTEGER NOT NULL DEFAULT 0
-    );
-
-    CREATE TABLE IF NOT EXISTS parts (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      vehicle_id INTEGER NOT NULL,
-      name TEXT NOT NULL,
-      category TEXT NOT NULL,
-      interval_km INTEGER NOT NULL,
-      interval_months INTEGER NOT NULL,
-      last_change_km INTEGER NOT NULL,
-      last_change_date TEXT NOT NULL
-    );
-
-    CREATE TABLE IF NOT EXISTS maintenance_history (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      vehicle_id INTEGER NOT NULL,
-      part_name TEXT NOT NULL,
-      change_km INTEGER NOT NULL,
-      change_date TEXT NOT NULL
-    );
-
-    CREATE TABLE IF NOT EXISTS settings (
-      key TEXT PRIMARY KEY,
-      value TEXT NOT NULL
-    );
-  `);
-
-  // Ensure "Alinhamento" part exists for all vehicles (requirement 1)
-  try {
-    const todayStr = new Date().toISOString().split('T')[0];
-    const vRes = db.exec('SELECT id, current_km FROM vehicles');
-    if (vRes[0]) {
-      for (const row of vRes[0].values) {
-        const vId = row[0] as number;
-        const currentKm = (row[1] as number) || 0;
-        const checkPart = db.exec(
-          `SELECT id FROM parts WHERE vehicle_id = ${vId} AND lower(name) = 'alinhamento'`
-        );
-        if (!checkPart[0] || checkPart[0].values.length === 0) {
-          db.run(
-            `INSERT INTO parts (vehicle_id, name, category, interval_km, interval_months, last_change_km, last_change_date)
-             VALUES (?, 'Alinhamento', 'pneus', 10000, 6, ?, ?)`,
-            [vId, currentKm, todayStr]
-          );
-        }
-      }
-    }
-  } catch (err) {
-    console.warn('Could not auto-migrate Alinhamento part:', err);
-  }
-}
-
-function seedDefaultData(db: Database) {
-  // Check if vehicles already exist
-  const res = db.exec('SELECT count(*) as count FROM vehicles');
-  const count = res[0]?.values[0]?.[0] as number;
-  if (count > 0) return;
-
+function createSeedState(): StoreState {
   const currentKm = 78450;
   const today = new Date();
+  const todayIso = today.toISOString().split('T')[0];
 
-  // Helper for dates in past
   const pastMonthsDate = (months: number): string => {
     const d = new Date(today);
     d.setMonth(d.getMonth() - months);
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
   };
 
-  db.run(
-    `INSERT INTO vehicles (name, plate, current_km, tank_capacity, fuel_level, avg_consumption, is_active)
-     VALUES (?, ?, ?, ?, ?, ?, 1)`,
-    ['Civic Touring 1.5 Turbo', 'BRA-2E19', currentKm, 56, 38, 11.8]
-  );
+  const vehicle: Vehicle = {
+    id: 1,
+    name: 'Civic Touring 1.5 Turbo',
+    plate: 'BRA-2E19',
+    current_km: currentKm,
+    tank_capacity: 56,
+    fuel_level: 38,
+    avg_consumption: 11.8,
+    is_active: 1,
+  };
 
-  const vehicleId = 1;
-
-  // Realistic parts seeded with high contrast states
-  const partsList: [string, string, number, number, number, string][] = [
-    // [name, category, interval_km, interval_months, last_change_km, last_change_date]
-    // Motor
-    ['Óleo do Motor', 'motor', 10000, 12, 71000, pastMonthsDate(6)], // 74.5% (Em dia)
-    ['Filtro de Óleo', 'motor', 10000, 12, 71000, pastMonthsDate(6)], // 74.5% (Em dia)
-    ['Filtro de Ar do Motor', 'motor', 15000, 12, 66000, pastMonthsDate(10)], // 83% (Trocar breve)
-    ['Filtro de Combustível', 'motor', 15000, 12, 64200, pastMonthsDate(11)], // 95% (Trocar breve)
-    ['Velas de Ignição', 'motor', 40000, 36, 55000, pastMonthsDate(18)], // 58% (Em dia)
-    ['Correia Dentada / Acessórios', 'motor', 60000, 48, 40000, pastMonthsDate(28)], // 64% (Em dia)
-    ['Líquido de Arrefecimento', 'motor', 40000, 24, 62000, pastMonthsDate(14)], // 58% (Em dia)
-    
-    // Freios
-    ['Pastilhas de Freio Dianteiras', 'freios', 25000, 24, 62500, pastMonthsDate(16)], // 63.8% (Em dia)
-    ['Discos de Freio Dianteiros', 'freios', 50000, 36, 40000, pastMonthsDate(26)], // 76.9% (Em dia)
-    ['Fluido de Freio (DOT 4)', 'freios', 20000, 24, 60000, pastMonthsDate(22)], // 92.2% (Trocar breve)
-
-    // Elétrica
-    ['Bateria 12V', 'eletrica', 0, 30, 45000, pastMonthsDate(32)], // 106% (Vencida!)
-    ['Palhetas do Limpador', 'eletrica', 0, 12, 72000, pastMonthsDate(6)], // 50% (Em dia)
-
-    // Pneus & Rodagem
-    ['Alinhamento', 'pneus', 10000, 6, currentKm, today.toISOString().split('T')[0]], // 100% em dia hoje
-    ['Pneus (Rodízio & Balanceamento)', 'pneus', 10000, 6, 69200, pastMonthsDate(5)], // 92.5% (Trocar breve!)
-    ['Pneus (Troca Completa)', 'pneus', 50000, 48, 48000, pastMonthsDate(24)], // 60.9% (Em dia)
+  const rawParts: [string, CategoryType, number, number, number, string][] = [
+    ['Óleo do Motor', 'motor', 10000, 12, 71000, pastMonthsDate(6)],
+    ['Filtro de Óleo', 'motor', 10000, 12, 71000, pastMonthsDate(6)],
+    ['Filtro de Ar do Motor', 'motor', 15000, 12, 66000, pastMonthsDate(10)],
+    ['Filtro de Combustível', 'motor', 15000, 12, 64200, pastMonthsDate(11)],
+    ['Velas de Ignição', 'motor', 40000, 36, 55000, pastMonthsDate(18)],
+    ['Correia Dentada / Acessórios', 'motor', 60000, 48, 40000, pastMonthsDate(28)],
+    ['Líquido de Arrefecimento', 'motor', 40000, 24, 62000, pastMonthsDate(14)],
+    ['Pastilhas de Freio Dianteiras', 'freios', 25000, 24, 62500, pastMonthsDate(16)],
+    ['Discos de Freio Dianteiros', 'freios', 50000, 36, 40000, pastMonthsDate(26)],
+    ['Fluido de Freio (DOT 4)', 'freios', 20000, 24, 60000, pastMonthsDate(22)],
+    ['Bateria 12V', 'eletrica', 0, 30, 45000, pastMonthsDate(32)],
+    ['Palhetas do Limpador', 'eletrica', 0, 12, 72000, pastMonthsDate(6)],
+    ['Alinhamento', 'pneus', 10000, 6, currentKm, todayIso],
+    ['Pneus (Rodízio & Balanceamento)', 'pneus', 10000, 6, 69200, pastMonthsDate(5)],
+    ['Pneus (Troca Completa)', 'pneus', 50000, 48, 48000, pastMonthsDate(24)],
   ];
 
-  for (const p of partsList) {
-    db.run(
-      `INSERT INTO parts (vehicle_id, name, category, interval_km, interval_months, last_change_km, last_change_date)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`,
-      [vehicleId, p[0], p[1], p[2], p[3], p[4], p[5]]
-    );
-  }
+  const parts: Part[] = rawParts.map((p, idx) => ({
+    id: idx + 1,
+    vehicle_id: 1,
+    name: p[0],
+    category: p[1],
+    interval_km: p[2],
+    interval_months: p[3],
+    last_change_km: p[4],
+    last_change_date: p[5],
+  }));
 
-  // Seed initial history
-  db.run(
-    `INSERT INTO maintenance_history (vehicle_id, part_name, change_km, change_date)
-     VALUES (?, ?, ?, ?)`,
-    [vehicleId, 'Óleo do Motor & Filtro', 71000, pastMonthsDate(6)]
-  );
-  db.run(
-    `INSERT INTO maintenance_history (vehicle_id, part_name, change_km, change_date)
-     VALUES (?, ?, ?, ?)`,
-    [vehicleId, 'Pastilhas de Freio', 62500, pastMonthsDate(16)]
-  );
-  db.run(
-    `INSERT INTO maintenance_history (vehicle_id, part_name, change_km, change_date)
-     VALUES (?, ?, ?, ?)`,
-    [vehicleId, 'Velas de Ignição', 55000, pastMonthsDate(18)]
-  );
+  const history: MaintenanceRecord[] = [
+    { id: 1, vehicle_id: 1, part_name: 'Óleo do Motor & Filtro', change_km: 71000, change_date: pastMonthsDate(6) },
+    { id: 2, vehicle_id: 1, part_name: 'Pastilhas de Freio', change_km: 62500, change_date: pastMonthsDate(16) },
+    { id: 3, vehicle_id: 1, part_name: 'Velas de Ignição', change_km: 55000, change_date: pastMonthsDate(18) },
+  ];
 
-  // Settings
-  db.run(`INSERT OR REPLACE INTO settings (key, value) VALUES ('theme', 'amber')`);
-  db.run(`INSERT OR REPLACE INTO settings (key, value) VALUES ('bgStyle', 'gradient')`);
+  return {
+    nextVehicleId: 2,
+    nextPartId: parts.length + 1,
+    nextHistoryId: history.length + 1,
+    vehicles: [vehicle],
+    parts,
+    history,
+    settings: {
+      theme: 'amber',
+      bgStyle: 'gradient',
+    },
+  };
 }
 
-// Data access operations
-export function getVehicles(): Vehicle[] {
-  if (!dbInstance) return [];
-  const res = dbInstance.exec('SELECT * FROM vehicles ORDER BY id ASC');
-  if (!res[0]) return [];
-  const cols = res[0].columns;
-  return res[0].values.map((row) => {
-    const obj: Record<string, unknown> = {};
-    cols.forEach((col, idx) => {
-      obj[col] = row[idx];
-    });
-    return obj as unknown as Vehicle;
+function ensureAlinhamentoPart(state: StoreState): void {
+  const todayStr = new Date().toISOString().split('T')[0];
+  for (const v of state.vehicles) {
+    const hasAlinhamento = state.parts.some(
+      (p) => p.vehicle_id === v.id && p.name.toLowerCase() === 'alinhamento'
+    );
+    if (!hasAlinhamento) {
+      state.parts.push({
+        id: state.nextPartId++,
+        vehicle_id: v.id,
+        name: 'Alinhamento',
+        category: 'pneus',
+        interval_km: 10000,
+        interval_months: 6,
+        last_change_km: v.current_km || 0,
+        last_change_date: todayStr,
+      });
+    }
+  }
+}
+
+async function loadSqlJsEngine(): Promise<SqlJsStatic> {
+  if (SQL) return SQL;
+  const { default: initSqlJs } = await import('sql.js');
+  let wasmBinary: ArrayBuffer | undefined;
+  try {
+    const res = await fetch('/sql-wasm.wasm');
+    if (res.ok) {
+      wasmBinary = await res.arrayBuffer();
+    }
+  } catch {
+    // Fallback to locateFile below
+  }
+
+  SQL = await initSqlJs({
+    ...(wasmBinary ? { wasmBinary } : {}),
+    locateFile: (file) => (file.endsWith('.wasm') ? '/sql-wasm.wasm' : file),
   });
+  return SQL;
+}
+
+function extractStoreFromSqliteDb(db: Database): StoreState {
+  const vehiclesRes = db.exec('SELECT * FROM vehicles ORDER BY id ASC');
+  const vehicles: Vehicle[] = [];
+  if (vehiclesRes[0]) {
+    const cols = vehiclesRes[0].columns;
+    for (const row of vehiclesRes[0].values) {
+      const obj: Record<string, unknown> = {};
+      cols.forEach((c, i) => (obj[c] = row[i]));
+      vehicles.push(obj as unknown as Vehicle);
+    }
+  }
+
+  const partsRes = db.exec('SELECT * FROM parts ORDER BY id ASC');
+  const parts: Part[] = [];
+  if (partsRes[0]) {
+    const cols = partsRes[0].columns;
+    for (const row of partsRes[0].values) {
+      const obj: Record<string, unknown> = {};
+      cols.forEach((c, i) => (obj[c] = row[i]));
+      parts.push(obj as unknown as Part);
+    }
+  }
+
+  const histRes = db.exec('SELECT * FROM maintenance_history ORDER BY id ASC');
+  const history: MaintenanceRecord[] = [];
+  if (histRes[0]) {
+    const cols = histRes[0].columns;
+    for (const row of histRes[0].values) {
+      const obj: Record<string, unknown> = {};
+      cols.forEach((c, i) => (obj[c] = row[i]));
+      history.push(obj as unknown as MaintenanceRecord);
+    }
+  }
+
+  const settingsRes = db.exec('SELECT key, value FROM settings');
+  const settings: Record<string, string> = {};
+  if (settingsRes[0]) {
+    for (const row of settingsRes[0].values) {
+      settings[String(row[0])] = String(row[1]);
+    }
+  }
+
+  const maxV = vehicles.reduce((m, v) => Math.max(m, v.id), 0);
+  const maxP = parts.reduce((m, p) => Math.max(m, p.id), 0);
+  const maxH = history.reduce((m, h) => Math.max(m, h.id), 0);
+
+  return {
+    nextVehicleId: maxV + 1,
+    nextPartId: maxP + 1,
+    nextHistoryId: maxH + 1,
+    vehicles,
+    parts,
+    history,
+    settings,
+  };
+}
+
+/**
+ * Initialize fast zero-WASM local store (localStorage + IndexedDB)
+ */
+export async function initDatabase(): Promise<StoreState> {
+  if (storeState) return storeState;
+
+  // 1. Try instant synchronous localStorage first
+  try {
+    const raw = localStorage.getItem(LS_KEY);
+    if (raw) {
+      const parsed = JSON.parse(raw) as StoreState;
+      if (parsed && Array.isArray(parsed.vehicles) && parsed.vehicles.length > 0) {
+        ensureAlinhamentoPart(parsed);
+        storeState = parsed;
+        return storeState;
+      }
+    }
+  } catch (err) {
+    console.warn('Could not read localStorage store:', err);
+  }
+
+  // 2. Try IndexedDB JSON mirror
+  const idbJson = await idbGet<string>(IDB_JSON_KEY);
+  if (typeof idbJson === 'string' && idbJson.length > 0) {
+    try {
+      const parsed = JSON.parse(idbJson) as StoreState;
+      if (parsed && Array.isArray(parsed.vehicles) && parsed.vehicles.length > 0) {
+        ensureAlinhamentoPart(parsed);
+        storeState = parsed;
+        persistState();
+        return storeState;
+      }
+    } catch (err) {
+      console.warn('Could not parse IndexedDB JSON store:', err);
+    }
+  }
+
+  // 3. Migrate legacy SQLite binary ONLY if one already exists in IndexedDB
+  const legacyBinary = await idbGet<Uint8Array | ArrayBuffer>(IDB_LEGACY_SQLITE_KEY);
+  if (legacyBinary) {
+    try {
+      const bytes = legacyBinary instanceof Uint8Array ? legacyBinary : new Uint8Array(legacyBinary);
+      if (bytes.length > 0) {
+        const sqlEngine = await loadSqlJsEngine();
+        const legacyDb = new sqlEngine.Database(bytes);
+        const migrated = extractStoreFromSqliteDb(legacyDb);
+        legacyDb.close();
+        if (migrated.vehicles.length > 0) {
+          ensureAlinhamentoPart(migrated);
+          storeState = migrated;
+          persistState();
+          return storeState;
+        }
+      }
+    } catch (err) {
+      console.warn('Legacy SQLite migration skipped:', err);
+    }
+  }
+
+  // 4. Fresh seed (0ms, zero WASM memory!)
+  storeState = createSeedState();
+  persistState();
+  return storeState;
+}
+
+export function getVehicles(): Vehicle[] {
+  if (!storeState) return [];
+  return [...storeState.vehicles].sort((a, b) => a.id - b.id);
 }
 
 export function getActiveVehicle(): Vehicle | null {
@@ -271,26 +351,31 @@ export function getActiveVehicle(): Vehicle | null {
 }
 
 export function setActiveVehicle(vehicleId: number): void {
-  if (!dbInstance) return;
-  dbInstance.run('UPDATE vehicles SET is_active = 0');
-  dbInstance.run('UPDATE vehicles SET is_active = 1 WHERE id = ?', [vehicleId]);
-  persistDb();
+  if (!storeState) return;
+  storeState.vehicles = storeState.vehicles.map((v) => ({
+    ...v,
+    is_active: v.id === vehicleId ? 1 : 0,
+  }));
+  persistState();
 }
 
 export function createVehicle(name: string, plate: string, km: number, tank: number, consumption: number): Vehicle {
-  if (!dbInstance) throw new Error('Database not initialized');
-  dbInstance.run('UPDATE vehicles SET is_active = 0');
-  dbInstance.run(
-    `INSERT INTO vehicles (name, plate, current_km, tank_capacity, fuel_level, avg_consumption, is_active)
-     VALUES (?, ?, ?, ?, ?, ?, 1)`,
-    [name, plate, km, tank, Math.round(tank * 0.7), consumption]
-  );
-  persistDb();
-  const v = getActiveVehicle();
-  if (!v) throw new Error('Failed to retrieve vehicle');
+  if (!storeState) throw new Error('Database not initialized');
+  storeState.vehicles = storeState.vehicles.map((v) => ({ ...v, is_active: 0 }));
 
-  // Clone standard parts template for new vehicle
-  const templateParts: [string, string, number, number][] = [
+  const newVehicle: Vehicle = {
+    id: storeState.nextVehicleId++,
+    name,
+    plate,
+    current_km: km,
+    tank_capacity: tank,
+    fuel_level: Math.round(tank * 0.7),
+    avg_consumption: consumption,
+    is_active: 1,
+  };
+  storeState.vehicles.push(newVehicle);
+
+  const templateParts: [string, CategoryType, number, number][] = [
     ['Óleo do Motor', 'motor', 10000, 12],
     ['Filtro de Óleo', 'motor', 10000, 12],
     ['Filtro de Ar do Motor', 'motor', 15000, 12],
@@ -307,14 +392,20 @@ export function createVehicle(name: string, plate: string, km: number, tank: num
 
   const todayStr = new Date().toISOString().split('T')[0];
   for (const tp of templateParts) {
-    dbInstance.run(
-      `INSERT INTO parts (vehicle_id, name, category, interval_km, interval_months, last_change_km, last_change_date)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`,
-      [v.id, tp[0], tp[1], tp[2], tp[3], km, todayStr]
-    );
+    storeState.parts.push({
+      id: storeState.nextPartId++,
+      vehicle_id: newVehicle.id,
+      name: tp[0],
+      category: tp[1],
+      interval_km: tp[2],
+      interval_months: tp[3],
+      last_change_km: km,
+      last_change_date: todayStr,
+    });
   }
-  persistDb();
-  return v;
+
+  persistState();
+  return newVehicle;
 }
 
 export function updateVehicle(
@@ -325,220 +416,247 @@ export function updateVehicle(
   tankCapacity?: number,
   avgConsumption?: number
 ): void {
-  if (!dbInstance) return;
-  if (km !== undefined && tankCapacity !== undefined && avgConsumption !== undefined) {
-    dbInstance.run(
-      'UPDATE vehicles SET name = ?, plate = ?, current_km = ?, tank_capacity = ?, avg_consumption = ? WHERE id = ?',
-      [name, plate, km, tankCapacity, avgConsumption, vehicleId]
-    );
-  } else {
-    dbInstance.run(
-      'UPDATE vehicles SET name = ?, plate = ? WHERE id = ?',
-      [name, plate, vehicleId]
-    );
-  }
-  persistDb();
+  if (!storeState) return;
+  storeState.vehicles = storeState.vehicles.map((v) => {
+    if (v.id !== vehicleId) return v;
+    if (km !== undefined && tankCapacity !== undefined && avgConsumption !== undefined) {
+      return {
+        ...v,
+        name,
+        plate,
+        current_km: km,
+        tank_capacity: tankCapacity,
+        avg_consumption: avgConsumption,
+      };
+    }
+    return { ...v, name, plate };
+  });
+  persistState();
 }
 
 export function updateVehicleKm(vehicleId: number, newKm: number): void {
-  if (!dbInstance) return;
-  dbInstance.run('UPDATE vehicles SET current_km = ? WHERE id = ?', [newKm, vehicleId]);
-  persistDb();
+  if (!storeState) return;
+  storeState.vehicles = storeState.vehicles.map((v) =>
+    v.id === vehicleId ? { ...v, current_km: newKm } : v
+  );
+  persistState();
 }
 
 export function updateFuelLevel(vehicleId: number, fuelLevel: number): void {
-  if (!dbInstance) return;
-  dbInstance.run('UPDATE vehicles SET fuel_level = ? WHERE id = ?', [fuelLevel, vehicleId]);
-  persistDb();
+  if (!storeState) return;
+  storeState.vehicles = storeState.vehicles.map((v) =>
+    v.id === vehicleId ? { ...v, fuel_level: fuelLevel } : v
+  );
+  persistState();
 }
 
 export function addFuel(vehicleId: number, addedLitros: number): void {
-  if (!dbInstance) return;
-  const vehicle = getActiveVehicle();
-  if (!vehicle) return;
-  const newFuel = Math.min(vehicle.tank_capacity, vehicle.fuel_level + addedLitros);
-  dbInstance.run('UPDATE vehicles SET fuel_level = ? WHERE id = ?', [newFuel, vehicleId]);
-  persistDb();
+  if (!storeState) return;
+  storeState.vehicles = storeState.vehicles.map((v) => {
+    if (v.id !== vehicleId) return v;
+    const newFuel = Math.min(v.tank_capacity, v.fuel_level + addedLitros);
+    return { ...v, fuel_level: newFuel };
+  });
+  persistState();
 }
 
 export function updateAvgConsumption(vehicleId: number, avgConsumption: number): void {
-  if (!dbInstance) return;
-  dbInstance.run('UPDATE vehicles SET avg_consumption = ? WHERE id = ?', [avgConsumption, vehicleId]);
-  persistDb();
+  if (!storeState) return;
+  storeState.vehicles = storeState.vehicles.map((v) =>
+    v.id === vehicleId ? { ...v, avg_consumption: avgConsumption } : v
+  );
+  persistState();
 }
 
 export function getParts(vehicleId: number): Part[] {
-  if (!dbInstance) return [];
-  const res = dbInstance.exec('SELECT * FROM parts WHERE vehicle_id = ? ORDER BY id ASC', [vehicleId]);
-  if (!res[0]) return [];
-  const cols = res[0].columns;
-  return res[0].values.map((row) => {
-    const obj: Record<string, unknown> = {};
-    cols.forEach((col, idx) => {
-      obj[col] = row[idx];
-    });
-    return obj as unknown as Part;
-  });
+  if (!storeState) return [];
+  return storeState.parts.filter((p) => p.vehicle_id === vehicleId).sort((a, b) => a.id - b.id);
 }
 
-/**
- * Renova a peça com o km atual e a data de hoje, e registra no histórico
- */
 export function renewPart(partId: number, currentKm: number, currentDate: string): void {
-  if (!dbInstance) return;
-  const res = dbInstance.exec('SELECT vehicle_id, name FROM parts WHERE id = ?', [partId]);
-  if (!res[0] || !res[0].values[0]) return;
+  if (!storeState) return;
+  const part = storeState.parts.find((p) => p.id === partId);
+  if (!part) return;
 
-  const vehicleId = res[0].values[0][0] as number;
-  const partName = res[0].values[0][1] as string;
+  part.last_change_km = currentKm;
+  part.last_change_date = currentDate;
 
-  dbInstance.run(
-    'UPDATE parts SET last_change_km = ?, last_change_date = ? WHERE id = ?',
-    [currentKm, currentDate, partId]
-  );
+  storeState.history.push({
+    id: storeState.nextHistoryId++,
+    vehicle_id: part.vehicle_id,
+    part_name: part.name,
+    change_km: currentKm,
+    change_date: currentDate,
+  });
 
-  dbInstance.run(
-    'INSERT INTO maintenance_history (vehicle_id, part_name, change_km, change_date) VALUES (?, ?, ?, ?)',
-    [vehicleId, partName, currentKm, currentDate]
-  );
-
-  persistDb();
+  persistState();
 }
 
 export function updatePart(
   partId: number,
   name: string,
-  category: string,
+  category: CategoryType,
   interval_km: number,
   interval_months: number,
   last_change_km: number,
   last_change_date: string
 ): void {
-  if (!dbInstance) return;
-  dbInstance.run(
-    `UPDATE parts 
-     SET name = ?, category = ?, interval_km = ?, interval_months = ?, last_change_km = ?, last_change_date = ? 
-     WHERE id = ?`,
-    [name, category, interval_km, interval_months, last_change_km, last_change_date, partId]
+  if (!storeState) return;
+  storeState.parts = storeState.parts.map((p) =>
+    p.id === partId
+      ? { ...p, name, category, interval_km, interval_months, last_change_km, last_change_date }
+      : p
   );
-  persistDb();
+  persistState();
 }
 
 export function createPart(
   vehicleId: number,
   name: string,
-  category: string,
+  category: CategoryType,
   interval_km: number,
   interval_months: number,
   last_change_km: number,
   last_change_date: string
 ): void {
-  if (!dbInstance) return;
-  dbInstance.run(
-    `INSERT INTO parts (vehicle_id, name, category, interval_km, interval_months, last_change_km, last_change_date)
-     VALUES (?, ?, ?, ?, ?, ?, ?)`,
-    [vehicleId, name, category, interval_km, interval_months, last_change_km, last_change_date]
-  );
-  persistDb();
+  if (!storeState) return;
+  storeState.parts.push({
+    id: storeState.nextPartId++,
+    vehicle_id: vehicleId,
+    name,
+    category,
+    interval_km,
+    interval_months,
+    last_change_km,
+    last_change_date,
+  });
+  persistState();
 }
 
 export function deletePart(partId: number): void {
-  if (!dbInstance) return;
-  dbInstance.run('DELETE FROM parts WHERE id = ?', [partId]);
-  persistDb();
+  if (!storeState) return;
+  storeState.parts = storeState.parts.filter((p) => p.id !== partId);
+  persistState();
 }
 
 export function getHistory(vehicleId: number): MaintenanceRecord[] {
-  if (!dbInstance) return [];
-  const res = dbInstance.exec(
-    'SELECT * FROM maintenance_history WHERE vehicle_id = ? ORDER BY id DESC LIMIT 50',
-    [vehicleId]
-  );
-  if (!res[0]) return [];
-  const cols = res[0].columns;
-  return res[0].values.map((row) => {
-    const obj: Record<string, unknown> = {};
-    cols.forEach((col, idx) => {
-      obj[col] = row[idx];
-    });
-    return obj as unknown as MaintenanceRecord;
-  });
+  if (!storeState) return [];
+  return storeState.history
+    .filter((h) => h.vehicle_id === vehicleId)
+    .sort((a, b) => b.id - a.id)
+    .slice(0, 50);
 }
 
 export function getSettings(): AppSettings {
   const defaultRepo = (import.meta.env.VITE_GITHUB_REPO as string | undefined) || 'wilsonlimamn/car-control';
-  if (!dbInstance) return { theme: 'amber', bgStyle: 'gradient', githubRepo: defaultRepo };
-  let theme: AppSettings['theme'] = 'amber';
-  let bgStyle: AppSettings['bgStyle'] = 'gradient';
-  let githubRepo = defaultRepo;
+  if (!storeState) return { theme: 'amber', bgStyle: 'gradient', githubRepo: defaultRepo };
 
-  try {
-    const res = dbInstance.exec('SELECT key, value FROM settings');
-    if (res[0]) {
-      for (const row of res[0].values) {
-        if (row[0] === 'theme') {
-          const val = String(row[1]);
-          theme = (val === 'lime' ? 'navy' : val) as AppSettings['theme'];
-        }
-        if (row[0] === 'bgStyle') {
-          const val = String(row[1]);
-          if (val === 'atmosphere') bgStyle = 'gradient';
-          else if (val === 'carbon' || val === 'midnight') bgStyle = 'gray';
-          else if (val === 'white' || val === 'gray' || val === 'gradient' || val === 'oled') bgStyle = val;
-          else bgStyle = 'gradient';
-        }
-        if (row[0] === 'githubRepo' && row[1]) {
-          githubRepo = String(row[1]);
-        }
-      }
-    }
-  } catch {
-    // fallback
-  }
+  const rawTheme = storeState.settings.theme || 'amber';
+  const theme: ThemeType = (rawTheme === 'lime' ? 'navy' : rawTheme) as ThemeType;
 
+  const rawBg = storeState.settings.bgStyle || 'gradient';
+  let bgStyle: BgStyleType = 'gradient';
+  if (rawBg === 'atmosphere') bgStyle = 'gradient';
+  else if (rawBg === 'carbon' || rawBg === 'midnight') bgStyle = 'gray';
+  else if (rawBg === 'white' || rawBg === 'gray' || rawBg === 'gradient' || rawBg === 'oled') bgStyle = rawBg;
+
+  const githubRepo = storeState.settings.githubRepo || defaultRepo;
   return { theme, bgStyle, githubRepo };
 }
 
 export function updateSetting(key: 'theme' | 'bgStyle' | 'githubRepo', val: string): void {
-  if (!dbInstance) return;
-  dbInstance.run('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)', [key, val]);
-  persistDb();
+  if (!storeState) return;
+  storeState.settings[key] = val;
+  persistState();
 }
 
 /**
- * Binary export of SQLite file
+ * Lazy SQLite binary export (only loads sql.js when user clicks Export)
  */
-export function exportSqliteBinary(): Uint8Array {
-  if (!dbInstance) throw new Error('Database not initialized');
-  return dbInstance.export();
-}
+export async function exportSqliteBinary(): Promise<Uint8Array> {
+  if (!storeState) throw new Error('Database not initialized');
+  const sqlEngine = await loadSqlJsEngine();
+  const db = new sqlEngine.Database();
 
-/**
- * Restore SQLite binary with schema integrity verification
- */
-export async function restoreSqliteBinary(bytes: Uint8Array): Promise<boolean> {
-  if (!SQL) {
-    SQL = await initSqlJs({
-      locateFile: (file) => (file.endsWith('.wasm') ? '/sql-wasm.wasm' : file),
-    });
+  db.run(`
+    CREATE TABLE vehicles (
+      id INTEGER PRIMARY KEY,
+      name TEXT NOT NULL,
+      plate TEXT,
+      current_km INTEGER NOT NULL,
+      tank_capacity REAL NOT NULL,
+      fuel_level REAL NOT NULL,
+      avg_consumption REAL NOT NULL,
+      is_active INTEGER NOT NULL DEFAULT 0
+    );
+    CREATE TABLE parts (
+      id INTEGER PRIMARY KEY,
+      vehicle_id INTEGER NOT NULL,
+      name TEXT NOT NULL,
+      category TEXT NOT NULL,
+      interval_km INTEGER NOT NULL,
+      interval_months INTEGER NOT NULL,
+      last_change_km INTEGER NOT NULL,
+      last_change_date TEXT NOT NULL
+    );
+    CREATE TABLE maintenance_history (
+      id INTEGER PRIMARY KEY,
+      vehicle_id INTEGER NOT NULL,
+      part_name TEXT NOT NULL,
+      change_km INTEGER NOT NULL,
+      change_date TEXT NOT NULL
+    );
+    CREATE TABLE settings (
+      key TEXT PRIMARY KEY,
+      value TEXT NOT NULL
+    );
+  `);
+
+  for (const v of storeState.vehicles) {
+    db.run(
+      'INSERT INTO vehicles (id, name, plate, current_km, tank_capacity, fuel_level, avg_consumption, is_active) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+      [v.id, v.name, v.plate || '', v.current_km, v.tank_capacity, v.fuel_level, v.avg_consumption, v.is_active]
+    );
+  }
+  for (const p of storeState.parts) {
+    db.run(
+      'INSERT INTO parts (id, vehicle_id, name, category, interval_km, interval_months, last_change_km, last_change_date) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+      [p.id, p.vehicle_id, p.name, p.category, p.interval_km, p.interval_months, p.last_change_km, p.last_change_date]
+    );
+  }
+  for (const h of storeState.history) {
+    db.run(
+      'INSERT INTO maintenance_history (id, vehicle_id, part_name, change_km, change_date) VALUES (?, ?, ?, ?, ?)',
+      [h.id, h.vehicle_id, h.part_name, h.change_km, h.change_date]
+    );
+  }
+  for (const [k, val] of Object.entries(storeState.settings)) {
+    db.run('INSERT INTO settings (key, value) VALUES (?, ?)', [k, val]);
   }
 
+  const binary = db.export();
+  db.close();
+  return binary;
+}
+
+/**
+ * Lazy SQLite binary restore
+ */
+export async function restoreSqliteBinary(bytes: Uint8Array): Promise<boolean> {
+  const sqlEngine = await loadSqlJsEngine();
   try {
-    const testDb = new SQL.Database(bytes);
-    // Validate integrity
+    const testDb = new sqlEngine.Database(bytes);
     const testRes = testDb.exec("SELECT name FROM sqlite_master WHERE type='table' AND name='vehicles'");
     if (!testRes[0] || testRes[0].values.length === 0) {
       testDb.close();
       throw new Error('Arquivo de backup inválido: tabela vehicles não encontrada');
     }
 
-    // Passed verification: replace instance
-    if (dbInstance) {
-      dbInstance.close();
-    }
-    dbInstance = testDb;
-    ensureTables(dbInstance);
-    await saveToIndexedDb(bytes);
+    const restored = extractStoreFromSqliteDb(testDb);
+    testDb.close();
+    ensureAlinhamentoPart(restored);
+    storeState = restored;
+    persistState();
     return true;
   } catch (err) {
     console.error('Falha ao restaurar banco de dados:', err);
@@ -547,12 +665,10 @@ export async function restoreSqliteBinary(bytes: Uint8Array): Promise<boolean> {
 }
 
 /**
- * Export CSV with BOM UTF-8 (\uFEFF) and ; separator as requested
+ * Export CSV with BOM UTF-8 (\uFEFF) and ; separator
  */
 export function exportCsvReport(vehicle: Vehicle, parts: Part[], history: MaintenanceRecord[]): string {
   const lines: string[] = [];
-
-  // BOM UTF-8
   const BOM = '\uFEFF';
 
   lines.push('RELATÓRIO DE MANUTENÇÃO - AUTO EM DIA (CAR CONTROL)');
@@ -569,8 +685,8 @@ export function exportCsvReport(vehicle: Vehicle, parts: Part[], history: Mainte
       (today.getMonth() - new Date(p.last_change_date).getMonth())
     );
 
-    let wearByKm = p.interval_km > 0 ? (kmDriven / p.interval_km) * 100 : 0;
-    let wearByTime = p.interval_months > 0 ? (monthsPassed / p.interval_months) * 100 : 0;
+    const wearByKm = p.interval_km > 0 ? (kmDriven / p.interval_km) * 100 : 0;
+    const wearByTime = p.interval_months > 0 ? (monthsPassed / p.interval_months) * 100 : 0;
     const wear = Math.round(Math.max(wearByKm, wearByTime));
 
     let statusText = 'Em dia';
@@ -593,9 +709,6 @@ export function exportCsvReport(vehicle: Vehicle, parts: Part[], history: Mainte
   return BOM + lines.join('\r\n');
 }
 
-/**
- * Request persistent storage
- */
 export async function requestStoragePersistence(): Promise<{ supported: boolean; persisted: boolean }> {
   if (typeof navigator !== 'undefined' && navigator.storage && navigator.storage.persist) {
     const isPersisted = await navigator.storage.persisted();
@@ -608,16 +721,7 @@ export async function requestStoragePersistence(): Promise<{ supported: boolean;
   return { supported: false, persisted: false };
 }
 
-/**
- * Reset all data to initial defaults
- */
 export function resetToDefaults(): void {
-  if (!dbInstance) return;
-  dbInstance.run('DROP TABLE IF EXISTS vehicles');
-  dbInstance.run('DROP TABLE IF EXISTS parts');
-  dbInstance.run('DROP TABLE IF EXISTS maintenance_history');
-  dbInstance.run('DROP TABLE IF EXISTS settings');
-  ensureTables(dbInstance);
-  seedDefaultData(dbInstance);
-  persistDb();
+  storeState = createSeedState();
+  persistState();
 }

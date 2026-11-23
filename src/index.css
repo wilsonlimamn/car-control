@@ -106,7 +106,6 @@
   [data-bg-style="white"] {
     background-color: #e8edf4;
     background-image: linear-gradient(180deg, #f3f6fa 0%, #e4eaf2 100%);
-    background-attachment: fixed;
 
     --text-primary: #0f172a;
     --text-secondary: #334155;
@@ -154,7 +153,6 @@
   [data-bg-style="gray"] {
     background-color: #1f252e;
     background-image: linear-gradient(180deg, #272e3a 0%, #1a1f27 100%);
-    background-attachment: fixed;
 
     --text-primary: #f8fafc;
     --text-secondary: #cbd5e1;
@@ -181,9 +179,8 @@
       radial-gradient(circle at 12% 18%, rgba(var(--accent-rgb), 0.24) 0%, transparent 48%),
       radial-gradient(circle at 88% 82%, rgba(var(--accent-rgb), 0.15) 0%, transparent 46%),
       linear-gradient(135deg, #060912 0%, #131c2e 52%, #080d18 100%);
-    background-attachment: fixed;
 
-    --card-bg: rgba(17, 23, 36, 0.8);
+    --card-bg: rgba(17, 23, 36, 0.92);
     --card-border: rgba(255, 255, 255, 0.11);
     --subcard-bg: rgba(6, 10, 18, 0.62);
     --display-bg: rgba(5, 8, 15, 0.9);
@@ -207,6 +204,8 @@
 
   html, body {
     font-family: var(--font-sans);
+    background-color: #0b1120;
+    min-height: 100vh;
     min-height: 100dvh;
     color: var(--text-primary);
     overscroll-behavior: none;
@@ -241,8 +240,6 @@
   background: var(--card-bg);
   border: 1px solid var(--card-border);
   box-shadow: var(--card-shadow);
-  backdrop-filter: blur(16px);
-  -webkit-backdrop-filter: blur(16px);
   color: var(--text-primary);
 }
 
@@ -261,8 +258,6 @@
 .cockpit-nav-bg {
   background: var(--nav-bg);
   border-color: var(--border-main);
-  backdrop-filter: blur(20px);
-  -webkit-backdrop-filter: blur(20px);
 }
 
 .cockpit-nav-idle {
@@ -403,6 +398,7 @@
 }
 
 .cockpit-main {
+  min-height: 100vh;
   min-height: 100dvh;
   padding-top: calc(12px + env(safe-area-inset-top, 0px));
   padding-right: calc(12px + env(safe-area-inset-right, 0px));
@@ -453,6 +449,7 @@
   }
 
   .cockpit-main {
+    min-height: 100vh;
     min-height: 100dvh;
     padding-left: calc(128px + clamp(8px, 1.2vw, 14px) + env(safe-area-inset-left, 0px));
     padding-right: calc(clamp(8px, 1.2vw, 14px) + env(safe-area-inset-right, 0px));
@@ -461,7 +458,9 @@
   }
 
   .cockpit-main-home {
+    height: 100vh;
     height: 100dvh;
+    max-height: 100vh;
     max-height: 100dvh;
     overflow: hidden;
   }

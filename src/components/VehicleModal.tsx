@@ -58,7 +58,7 @@ export const VehicleModal: React.FC<VehicleModalProps> = ({
       role="dialog"
       aria-modal="true"
       aria-labelledby="vehicle-modal-title"
-      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/75 backdrop-blur-md animate-in fade-in duration-150"
+      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 animate-in fade-in duration-150"
     >
       <div className="cockpit-modal w-full max-w-lg rounded-3xl p-6 shadow-2xl flex flex-col gap-5 max-h-[92vh] overflow-y-auto">
         <div className="flex items-center justify-between pb-2 border-b cockpit-divider">

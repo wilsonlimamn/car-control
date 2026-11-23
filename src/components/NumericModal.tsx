@@ -95,7 +95,7 @@ export const NumericModal: React.FC<NumericModalProps> = ({
       aria-labelledby="numeric-modal-title"
       onKeyDown={handleKeyDown}
       tabIndex={0}
-      className="fixed inset-0 z-50 flex items-center justify-center p-2 bg-black/75 backdrop-blur-md animate-in fade-in duration-150"
+      className="fixed inset-0 z-50 flex items-center justify-center p-2 bg-black/80 animate-in fade-in duration-150"
     >
       <div className="cockpit-numeric-card cockpit-modal rounded-3xl p-[clamp(12px,2dvh,20px)] shadow-2xl overflow-hidden">
         {/* Coluna Esquerda (Landscape) / Topo (Portrait) */}

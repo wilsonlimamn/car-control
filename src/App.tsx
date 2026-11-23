@@ -34,6 +34,7 @@ import { Car } from 'lucide-react';
 
 export default function App() {
   const [isReady, setIsReady] = useState(false);
+  const [initError, setInitError] = useState<string | null>(null);
   const [currentTab, setCurrentTab] = useState<TabType>('home');
 
   // State
@@ -95,24 +96,41 @@ export default function App() {
     }
   }, []);
 
-  // Initial database boot
-  useEffect(() => {
-    let mounted = true;
+  const bootDatabase = useCallback(() => {
+    let active = true;
+    setInitError(null);
+    const timeoutId = window.setTimeout(() => {
+      if (active) {
+        setInitError('Tempo limite excedido ao inicializar o banco local SQLite/WebAssembly neste sistema.');
+      }
+    }, 10000);
+
     initDatabase()
       .then(() => {
-        if (mounted) {
+        window.clearTimeout(timeoutId);
+        if (active) {
           reloadData();
           setIsReady(true);
         }
       })
       .catch((err) => {
+        window.clearTimeout(timeoutId);
         console.error('Failed to initialize SQLite database:', err);
+        if (active) {
+          setInitError((err as Error)?.message || 'Falha ao iniciar banco de dados local.');
+        }
       });
 
     return () => {
-      mounted = false;
+      active = false;
+      window.clearTimeout(timeoutId);
     };
   }, [reloadData]);
+
+  // Initial database boot
+  useEffect(() => {
+    return bootDatabase();
+  }, [bootDatabase]);
 
   // Sync theme and bg-style to document body / root
   useEffect(() => {
@@ -265,12 +283,30 @@ export default function App() {
 
   if (!isReady || !activeVehicle) {
     return (
-      <div className="min-h-screen bg-black flex flex-col items-center justify-center text-white p-6">
-        <div className="w-16 h-16 rounded-3xl bg-amber-500/20 border border-amber-500/40 text-amber-400 flex items-center justify-center animate-pulse mb-4 shadow-[0_0_24px_rgba(245,158,11,0.4)]">
+      <div
+        className="min-h-screen flex flex-col items-center justify-center text-white p-6 text-center"
+        style={{ backgroundColor: '#0b1120', color: '#f8fafc', minHeight: '100vh' }}
+      >
+        <div className="w-16 h-16 rounded-3xl bg-blue-600/25 border border-blue-500/50 text-blue-400 flex items-center justify-center animate-pulse mb-4">
           <Car size={34} />
         </div>
         <h1 className="text-2xl font-black tracking-tight text-white">CAR CONTROL</h1>
-        <p className="text-sm text-slate-400 mt-2 font-mono">Inicializando Cockpit SQLite...</p>
+        {initError ? (
+          <div className="mt-4 max-w-md flex flex-col items-center gap-3">
+            <p className="text-base font-bold text-red-300 bg-red-950/70 border border-red-500/40 rounded-2xl px-4 py-3">
+              {initError}
+            </p>
+            <button
+              type="button"
+              onClick={() => window.location.reload()}
+              className="min-h-[56px] px-6 rounded-2xl bg-blue-700 text-white font-black text-base"
+            >
+              Tentar Novamente
+            </button>
+          </div>
+        ) : (
+          <p className="text-base text-slate-300 mt-2 font-mono">Inicializando Cockpit SQLite...</p>
+        )}
       </div>
     );
   }

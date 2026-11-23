@@ -71,7 +71,13 @@ jobs:
           with open(manifest_path, "r", encoding="utf-8") as f:
               manifest = f.read()
 
-          # Ensure MainActivity locks to landscape for car head unit
+          # Ensure MainActivity locks to landscape and application gets largeHeap for 1GB RAM head units
+          if "android:largeHeap" not in manifest:
+              manifest = manifest.replace(
+                  "<application",
+                  '<application\n        android:largeHeap="true"',
+                  1,
+              )
           if "android:screenOrientation" not in manifest:
               manifest = manifest.replace(
                   "<activity",

@@ -116,7 +116,7 @@ export const PartConfigModal: React.FC<PartConfigModalProps> = ({
       role="dialog"
       aria-modal="true"
       aria-labelledby="part-config-title"
-      className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/75 backdrop-blur-md animate-in fade-in duration-150"
+      className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/80 animate-in fade-in duration-150"
     >
       <div className="cockpit-modal w-full max-w-xl rounded-3xl p-5 sm:p-6 shadow-2xl flex flex-col gap-5 max-h-[92vh] overflow-y-auto">
         {/* Header */}

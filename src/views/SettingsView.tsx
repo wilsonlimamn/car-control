@@ -146,9 +146,9 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   ];
 
   // Backup SQLite export
-  const handleDownloadBackup = () => {
+  const handleDownloadBackup = async () => {
     try {
-      const bytes = exportSqliteBinary();
+      const bytes = await exportSqliteBinary();
       const blob = new Blob([bytes as BlobPart], { type: 'application/x-sqlite3' });
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
