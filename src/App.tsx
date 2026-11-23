@@ -18,7 +18,8 @@ import {
   setActiveVehicle,
   createPart,
   updatePart,
-  deletePart
+  deletePart,
+  loadSampleData
 } from './db/sqlite';
 import { calculatePartStats, getTodayIso, formatNumber } from './utils/calculations';
 import { Navigation } from './components/Navigation';
@@ -30,6 +31,7 @@ import { NumericModal } from './components/NumericModal';
 import { ConfirmModal } from './components/ConfirmModal';
 import { VehicleModal } from './components/VehicleModal';
 import { PartConfigModal } from './components/PartConfigModal';
+import { OnboardingView } from './components/OnboardingView';
 import { Car } from 'lucide-react';
 
 export default function App() {
@@ -281,7 +283,7 @@ export default function App() {
     reloadData();
   };
 
-  if (!isReady || !activeVehicle) {
+  if (!isReady) {
     return (
       <div
         className="min-h-screen flex flex-col items-center justify-center text-white p-6 text-center"
@@ -305,8 +307,28 @@ export default function App() {
             </button>
           </div>
         ) : (
-          <p className="text-base text-slate-300 mt-2 font-mono">Inicializando Cockpit SQLite...</p>
+          <p className="text-base text-slate-300 mt-2 font-mono">Inicializando Cockpit...</p>
         )}
+      </div>
+    );
+  }
+
+  if (!activeVehicle) {
+    return (
+      <div className="min-h-[100dvh] w-full cockpit-text-primary font-sans">
+        <OnboardingView
+          onCreateVehicle={(name, plate, km, tank, consumption, fuelLiters) => {
+            createVehicle(name, plate, km, tank, consumption, fuelLiters);
+            reloadData();
+          }}
+          onUseSampleData={() => {
+            loadSampleData();
+            reloadData();
+          }}
+          onRestoredBackup={() => {
+            reloadData();
+          }}
+        />
       </div>
     );
   }

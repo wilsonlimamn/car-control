@@ -32,13 +32,29 @@
           box.style.display = 'block';
           box.textContent = msg;
         }
-        window.addEventListener('error', function (e) {
-          showBootError('Erro ao iniciar: ' + (e.message || 'Falha de script'));
-        });
+        window.addEventListener(
+          'error',
+          function (e) {
+            var target = e && e.target;
+            if (target && target.tagName === 'SCRIPT') {
+              showBootError('Falha ao carregar script: ' + (target.src || 'index'));
+              return;
+            }
+            showBootError('Erro ao iniciar: ' + ((e && e.message) || 'Falha de script'));
+          },
+          true
+        );
         window.addEventListener('unhandledrejection', function (e) {
-          var reason = e.reason && (e.reason.message || String(e.reason));
+          var reason = e && e.reason && (e.reason.message || String(e.reason));
           showBootError('Erro assíncrono: ' + (reason || 'Falha ao carregar'));
         });
+        setTimeout(function () {
+          if (!window.__CAR_CONTROL_BOOTED__) {
+            showBootError(
+              'O WebView desta central demorou para iniciar os módulos JS. Verifique se o Android System WebView está atualizado.'
+            );
+          }
+        }, 7000);
       })();
     </script>
   </head>

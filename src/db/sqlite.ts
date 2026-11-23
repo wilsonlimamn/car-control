@@ -106,6 +106,21 @@ function persistState(): void {
   void idbPut(IDB_JSON_KEY, serialized);
 }
 
+function createEmptyState(): StoreState {
+  return {
+    nextVehicleId: 1,
+    nextPartId: 1,
+    nextHistoryId: 1,
+    vehicles: [],
+    parts: [],
+    history: [],
+    settings: {
+      theme: 'navy',
+      bgStyle: 'gradient',
+    },
+  };
+}
+
 function createSeedState(): StoreState {
   const currentKm = 78450;
   const today = new Date();
@@ -171,10 +186,22 @@ function createSeedState(): StoreState {
     parts,
     history,
     settings: {
-      theme: 'amber',
+      theme: 'navy',
       bgStyle: 'gradient',
     },
   };
+}
+
+export function loadSampleData(): Vehicle {
+  const currentTheme = storeState?.settings?.theme || 'navy';
+  const currentBg = storeState?.settings?.bgStyle || 'gradient';
+  const currentRepo = storeState?.settings?.githubRepo;
+  storeState = createSeedState();
+  storeState.settings.theme = currentTheme;
+  storeState.settings.bgStyle = currentBg;
+  if (currentRepo) storeState.settings.githubRepo = currentRepo;
+  persistState();
+  return storeState.vehicles[0];
 }
 
 function ensureAlinhamentoPart(state: StoreState): void {
@@ -286,7 +313,7 @@ export async function initDatabase(): Promise<StoreState> {
     const raw = localStorage.getItem(LS_KEY);
     if (raw) {
       const parsed = JSON.parse(raw) as StoreState;
-      if (parsed && Array.isArray(parsed.vehicles) && parsed.vehicles.length > 0) {
+      if (parsed && Array.isArray(parsed.vehicles)) {
         ensureAlinhamentoPart(parsed);
         storeState = parsed;
         return storeState;
@@ -301,7 +328,7 @@ export async function initDatabase(): Promise<StoreState> {
   if (typeof idbJson === 'string' && idbJson.length > 0) {
     try {
       const parsed = JSON.parse(idbJson) as StoreState;
-      if (parsed && Array.isArray(parsed.vehicles) && parsed.vehicles.length > 0) {
+      if (parsed && Array.isArray(parsed.vehicles)) {
         ensureAlinhamentoPart(parsed);
         storeState = parsed;
         persistState();
@@ -334,8 +361,8 @@ export async function initDatabase(): Promise<StoreState> {
     }
   }
 
-  // 4. Fresh seed (0ms, zero WASM memory!)
-  storeState = createSeedState();
+  // 4. Fresh install: start with no vehicles so onboarding lets the user enter their car data
+  storeState = createEmptyState();
   persistState();
   return storeState;
 }
@@ -359,9 +386,21 @@ export function setActiveVehicle(vehicleId: number): void {
   persistState();
 }
 
-export function createVehicle(name: string, plate: string, km: number, tank: number, consumption: number): Vehicle {
+export function createVehicle(
+  name: string,
+  plate: string,
+  km: number,
+  tank: number,
+  consumption: number,
+  initialFuelLiters?: number
+): Vehicle {
   if (!storeState) throw new Error('Database not initialized');
   storeState.vehicles = storeState.vehicles.map((v) => ({ ...v, is_active: 0 }));
+
+  const fuelLevel =
+    initialFuelLiters !== undefined
+      ? Math.min(tank, Math.max(0, initialFuelLiters))
+      : Math.round(tank * 0.7);
 
   const newVehicle: Vehicle = {
     id: storeState.nextVehicleId++,
@@ -369,17 +408,18 @@ export function createVehicle(name: string, plate: string, km: number, tank: num
     plate,
     current_km: km,
     tank_capacity: tank,
-    fuel_level: Math.round(tank * 0.7),
+    fuel_level: fuelLevel,
     avg_consumption: consumption,
     is_active: 1,
   };
   storeState.vehicles.push(newVehicle);
 
   const templateParts: [string, CategoryType, number, number][] = [
-    ['Óleo do Motor', 'motor', 10000, 12],
-    ['Filtro de Óleo', 'motor', 10000, 12],
+    ['Óleo do Motor', 'motor', 10000, 6],
+    ['Filtro de Óleo', 'motor', 10000, 6],
     ['Filtro de Ar do Motor', 'motor', 15000, 12],
     ['Filtro de Combustível', 'motor', 15000, 12],
+    ['Correia Dentada', 'motor', 30000, 36],
     ['Velas de Ignição', 'motor', 40000, 36],
     ['Pastilhas de Freio Dianteiras', 'freios', 25000, 24],
     ['Fluido de Freio (DOT 4)', 'freios', 20000, 24],
@@ -387,7 +427,7 @@ export function createVehicle(name: string, plate: string, km: number, tank: num
     ['Palhetas do Limpador', 'eletrica', 0, 12],
     ['Alinhamento', 'pneus', 10000, 6],
     ['Pneus (Rodízio & Balanceamento)', 'pneus', 10000, 6],
-    ['Pneus (Troca Completa)', 'pneus', 50000, 48],
+    ['Pneus (Troca Completa)', 'pneus', 40000, 24],
   ];
 
   const todayStr = new Date().toISOString().split('T')[0];
@@ -722,6 +762,6 @@ export async function requestStoragePersistence(): Promise<{ supported: boolean;
 }
 
 export function resetToDefaults(): void {
-  storeState = createSeedState();
+  storeState = createEmptyState();
   persistState();
 }

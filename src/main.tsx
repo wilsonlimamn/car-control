@@ -4,6 +4,8 @@ import {registerSW} from 'virtual:pwa-register';
 import App from './App.tsx';
 import './index.css';
 
+(window as unknown as {__CAR_CONTROL_BOOTED__?: boolean}).__CAR_CONTROL_BOOTED__ = true;
+
 // Service Worker only for Web/PWA; native Capacitor WebView serves bundled assets directly
 const isCapacitorNative = Boolean(
   (window as unknown as {Capacitor?: {isNativePlatform?: () => boolean}}).Capacitor?.isNativePlatform?.()

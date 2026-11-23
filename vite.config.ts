@@ -99,9 +99,15 @@ export default defineConfig(() => {
       },
     },
     build: {
-      target: 'chrome83',
+      target: 'chrome68',
       cssTarget: 'chrome83',
       cssMinify: 'lightningcss' as const,
+      modulePreload: false,
+      rolldownOptions: {
+        output: {
+          codeSplitting: false,
+        },
+      },
     },
     server: {
       // HMR is disabled in AI Studio via DISABLE_HMR env var.
