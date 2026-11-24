@@ -26,44 +26,427 @@
     />
     <script>
       (function () {
-        function showBootError(msg) {
-          var box = document.getElementById('boot-error-box');
-          if (!box) return;
-          box.style.display = 'block';
-          box.textContent = msg;
+        if (typeof globalThis === 'undefined') {
+          window.globalThis = window;
         }
+        if (typeof Object.fromEntries !== 'function') {
+          Object.fromEntries = function (entries) {
+            var obj = {};
+            if (!entries) return obj;
+            if (Array.isArray(entries)) {
+              for (var idx = 0; idx < entries.length; idx++) {
+                var pair = entries[idx];
+                if (pair && pair.length >= 2) {
+                  obj[pair[0]] = pair[1];
+                }
+              }
+              return obj;
+            }
+            if (typeof entries[Symbol && Symbol.iterator] === 'function') {
+              var iter = entries[Symbol.iterator]();
+              var step;
+              while (!(step = iter.next()).done) {
+                if (step.value && step.value.length >= 2) {
+                  obj[step.value[0]] = step.value[1];
+                }
+              }
+            }
+            return obj;
+          };
+        }
+        if (typeof Blob !== 'undefined' && typeof Blob.prototype.arrayBuffer !== 'function' && typeof Promise === 'function') {
+          Blob.prototype.arrayBuffer = function () {
+            var blob = this;
+            return new Promise(function (resolve, reject) {
+              var reader = new FileReader();
+              reader.onload = function () {
+                resolve(reader.result);
+              };
+              reader.onerror = function () {
+                reject(reader.error || new Error('Falha ao ler arquivo local'));
+              };
+              reader.readAsArrayBuffer(blob);
+            });
+          };
+        }
+        if (typeof window.fetch !== 'function' && typeof Promise === 'function') {
+          window.fetch = function (input, init) {
+            var url = typeof input === 'string' ? input : (input && input.url) || '';
+            var opts = init || {};
+            var method = (opts.method || 'GET').toUpperCase();
+            return new Promise(function (resolve, reject) {
+              try {
+                var xhr = new XMLHttpRequest();
+                xhr.open(method, url, true);
+                if (/\.wasm(?:\?.*)?$/i.test(url) || opts.responseType === 'arraybuffer') {
+                  xhr.responseType = 'arraybuffer';
+                }
+                if (opts.headers) {
+                  var hKeys = Object.keys(opts.headers);
+                  for (var hi = 0; hi < hKeys.length; hi++) {
+                    xhr.setRequestHeader(hKeys[hi], opts.headers[hKeys[hi]]);
+                  }
+                }
+                xhr.onload = function () {
+                  var status = xhr.status === 0 && xhr.response ? 200 : xhr.status;
+                  var ok = status >= 200 && status < 300;
+                  var rawResp = xhr.response;
+                  var respText = xhr.responseType === 'arraybuffer' ? '' : (xhr.responseText || '');
+                  resolve({
+                    ok: ok,
+                    status: status,
+                    statusText: xhr.statusText || '',
+                    url: url,
+                    arrayBuffer: function () {
+                      if (rawResp instanceof ArrayBuffer) {
+                        return Promise.resolve(rawResp);
+                      }
+                      var str = respText;
+                      var buf = new ArrayBuffer(str.length);
+                      var view = new Uint8Array(buf);
+                      for (var ci = 0; ci < str.length; ci++) {
+                        view[ci] = str.charCodeAt(ci) & 255;
+                      }
+                      return Promise.resolve(buf);
+                    },
+                    text: function () {
+                      return Promise.resolve(respText);
+                    },
+                    json: function () {
+                      try {
+                        return Promise.resolve(JSON.parse(respText));
+                      } catch (parseErr) {
+                        return Promise.reject(parseErr);
+                      }
+                    }
+                  });
+                };
+                xhr.onerror = function () {
+                  reject(new TypeError('Falha de rede ao buscar ' + url));
+                };
+                xhr.send(opts.body || null);
+              } catch (xhrErr) {
+                reject(xhrErr);
+              }
+            });
+          };
+        }
+
+        try {
+          var lpPref = localStorage.getItem('car_control_low_perf_pref_v1') || 'auto';
+          var lpAutoRaw = localStorage.getItem('car_control_low_perf_auto_v1');
+          var lpAuto = lpAutoRaw ? JSON.parse(lpAutoRaw) : null;
+          if (lpPref === 'on' || (lpPref === 'auto' && lpAuto && lpAuto.lowPerf)) {
+            document.documentElement.classList.add('low-perf');
+          }
+        } catch (e) {}
+
+        var LS_EVENTS_KEY = 'car_control_boot_events_v1';
+        var LS_STATE_KEY = 'car_control_boot_state_v1';
+        var MAX_EVENTS = 100;
+        var now = Date.now();
+        var sessionId = String(now) + '-' + Math.floor(Math.random() * 10000);
+
+        var persistedEvents = [];
+        var previousBootFailed = false;
+        var previousBootState = null;
+
+        try {
+          var rawEv = localStorage.getItem(LS_EVENTS_KEY);
+          if (rawEv) {
+            var parsedEv = JSON.parse(rawEv);
+            if (Array.isArray(parsedEv)) {
+              persistedEvents = parsedEv.slice(-MAX_EVENTS);
+            }
+          }
+          var rawSt = localStorage.getItem(LS_STATE_KEY);
+          if (rawSt) {
+            previousBootState = JSON.parse(rawSt);
+            if (previousBootState && previousBootState.completed === false) {
+              previousBootFailed = true;
+            }
+          }
+          localStorage.setItem(
+            LS_STATE_KEY,
+            JSON.stringify({
+              sessionId: sessionId,
+              startedAtIso: new Date(now).toISOString(),
+              completed: false,
+              lastStep: 'HTML carregado'
+            })
+          );
+        } catch (e) {}
+
+        function saveEvents(evList) {
+          try {
+            localStorage.setItem(LS_EVENTS_KEY, JSON.stringify(evList.slice(-MAX_EVENTS)));
+          } catch (e) {}
+        }
+
+        function saveState(patch) {
+          try {
+            var cur = {};
+            var raw = localStorage.getItem(LS_STATE_KEY);
+            if (raw) cur = JSON.parse(raw) || {};
+            for (var k in patch) {
+              if (Object.prototype.hasOwnProperty.call(patch, k)) {
+                cur[k] = patch[k];
+              }
+            }
+            localStorage.setItem(LS_STATE_KEY, JSON.stringify(cur));
+          } catch (e) {}
+        }
+
+        var diag = {
+          sessionId: sessionId,
+          startTime: now,
+          lastTime: now,
+          done: false,
+          reactMounted: false,
+          currentLabel: 'Carregando…',
+          previousBootFailed: previousBootFailed,
+          previousBootState: previousBootState,
+          previousEventsSnapshot: persistedEvents.slice(-MAX_EVENTS),
+          steps: [],
+          errors: [],
+          listeners: [],
+          recordStep: function (label) {
+            var t = Date.now();
+            var elapsed = t - diag.startTime;
+            var delta = t - diag.lastTime;
+            diag.currentLabel = label;
+            diag.steps.push({
+              label: label,
+              elapsedMs: elapsed,
+              deltaMs: delta
+            });
+            diag.lastTime = t;
+
+            persistedEvents.push({
+              sessionId: sessionId,
+              type: 'step',
+              label: label,
+              tsIso: new Date(t).toISOString(),
+              elapsedMs: elapsed,
+              deltaMs: delta
+            });
+            if (persistedEvents.length > MAX_EVENTS) {
+              persistedEvents = persistedEvents.slice(-MAX_EVENTS);
+            }
+            saveEvents(persistedEvents);
+            saveState({ lastStep: label });
+
+            var statusEl = document.getElementById('boot-status-text');
+            if (statusEl) {
+              statusEl.textContent = label;
+            }
+            for (var i = 0; i < diag.listeners.length; i++) {
+              try {
+                diag.listeners[i](label);
+              } catch (err) {}
+            }
+          },
+          recordError: function (msg) {
+            if (!msg) return;
+            if (diag.errors.indexOf(msg) === -1) {
+              diag.errors.push(msg);
+            }
+            var t = Date.now();
+            persistedEvents.push({
+              sessionId: sessionId,
+              type: 'error',
+              label: msg,
+              tsIso: new Date(t).toISOString(),
+              elapsedMs: t - diag.startTime,
+              deltaMs: t - diag.lastTime
+            });
+            if (persistedEvents.length > MAX_EVENTS) {
+              persistedEvents = persistedEvents.slice(-MAX_EVENTS);
+            }
+            saveEvents(persistedEvents);
+          },
+          markDone: function () {
+            diag.done = true;
+            var t = Date.now();
+            persistedEvents.push({
+              sessionId: sessionId,
+              type: 'done',
+              label: 'Inicialização concluída',
+              tsIso: new Date(t).toISOString(),
+              elapsedMs: t - diag.startTime,
+              deltaMs: t - diag.lastTime
+            });
+            if (persistedEvents.length > MAX_EVENTS) {
+              persistedEvents = persistedEvents.slice(-MAX_EVENTS);
+            }
+            saveEvents(persistedEvents);
+            saveState({
+              completed: true,
+              finishedAtIso: new Date(t).toISOString(),
+              lastStep: 'Inicialização concluída'
+            });
+          }
+        };
+        diag.recordStep('HTML carregado');
+        window.__BOOT_DIAG__ = diag;
+
+        function buildDetailsText() {
+          var ua = (navigator && navigator.userAgent) || 'N/A';
+          var chromeMatch = ua.match(/(?:Chrome|Chromium|CriOS)\/([\d.]+)/i);
+          var chromeVer = chromeMatch ? 'Chromium ' + chromeMatch[1] : ua;
+          var wasm = (typeof WebAssembly === 'object' && typeof WebAssembly.instantiate === 'function') ? 'Sim' : 'Não (asm.js)';
+          var idb = (typeof indexedDB !== 'undefined' && indexedDB !== null) ? 'Disponível' : 'Indisponível (fallback localStorage)';
+          var sw = (typeof navigator !== 'undefined' && 'serviceWorker' in navigator) ? 'Disponível' : 'Indisponível';
+          var memParts = [];
+          if (navigator && typeof navigator.deviceMemory === 'number') {
+            memParts.push('RAM aprox.: ' + navigator.deviceMemory + ' GB');
+          }
+          if (window.performance && performance.memory) {
+            memParts.push('Heap JS: ' + Math.round(performance.memory.usedJSHeapSize / 1048576) + ' / ' + Math.round(performance.memory.jsHeapSizeLimit / 1048576) + ' MB');
+          }
+          var lines = [
+            'Navegador/WebView: ' + chromeVer,
+            'User-Agent: ' + ua,
+            'WebAssembly: ' + wasm,
+            'IndexedDB: ' + idb,
+            'Service Worker: ' + sw,
+            'Memória: ' + (memParts.length ? memParts.join(' | ') : 'API não disponível'),
+            '',
+            'Etapas:'
+          ];
+          for (var i = 0; i < diag.steps.length; i++) {
+            var s = diag.steps[i];
+            lines.push('  - ' + s.label + ': ' + s.elapsedMs + ' ms (+' + s.deltaMs + ' ms)');
+          }
+          if (diag.errors.length > 0) {
+            lines.push('', 'Erros capturados:');
+            for (var j = 0; j < diag.errors.length; j++) {
+              lines.push('  ! ' + diag.errors[j]);
+            }
+          }
+          return lines.join('\n');
+        }
+
+        function showBootIssue(msg) {
+          diag.recordError(msg);
+          var box = document.getElementById('boot-error-box');
+          var actions = document.getElementById('boot-actions');
+          var details = document.getElementById('boot-details-box');
+          if (box) {
+            box.style.display = 'block';
+            box.textContent = msg;
+          }
+          if (actions) {
+            actions.style.display = 'flex';
+          }
+          if (details && details.style.display === 'block') {
+            details.textContent = buildDetailsText();
+          }
+        }
+
+        window.__SHOW_BOOT_DETAILS__ = function () {
+          var details = document.getElementById('boot-details-box');
+          if (!details) return;
+          if (details.style.display === 'block') {
+            details.style.display = 'none';
+          } else {
+            details.textContent = buildDetailsText();
+            details.style.display = 'block';
+          }
+        };
+
         window.addEventListener(
           'error',
           function (e) {
+            var msg = (e && e.message) || '';
+            var filename = (e && e.filename) || '';
             var target = e && e.target;
+            var errText = '';
             if (target && target.tagName === 'SCRIPT') {
-              showBootError('Falha ao carregar script: ' + (target.src || 'index'));
+              errText = 'Falha ao carregar script: ' + (target.src || 'módulo JS');
+            } else {
+              errText = 'Erro ao iniciar: ' + (msg || 'Falha de script') + (filename ? ' (' + filename + ':' + (e.lineno || 0) + ')' : '');
+            }
+
+            // Ignore ONLY modern-browser probe / modern ESM chunk errors while legacy chunks boot.
+            // Never ignore errors coming from -legacy- or polyfills-legacy bundles.
+            var hasLegacyEntry = !!document.getElementById('vite-legacy-entry');
+            var isLegacyFile = filename.indexOf('-legacy-') !== -1 || filename.indexOf('polyfills-legacy') !== -1;
+            var jsBooted = false;
+            for (var k = 0; k < diag.steps.length; k++) {
+              if (diag.steps[k].label === 'JS inicializado') {
+                jsBooted = true;
+                break;
+              }
+            }
+
+            var isSameDoc = !filename || filename === window.location.href || filename.indexOf('data:') === 0;
+            var isModernChunk = filename.indexOf('/assets/') !== -1 && !isLegacyFile;
+            var isProbeSyntax =
+              msg.indexOf('import.meta') !== -1 ||
+              msg.indexOf('Unexpected token *') !== -1 ||
+              msg.indexOf('Unexpected token function') !== -1;
+
+            var isProbeOrModernError =
+              !isLegacyFile &&
+              !(target && target.tagName === 'SCRIPT' && (target.src || '').indexOf('-legacy-') !== -1) &&
+              (isModernChunk || (isSameDoc && isProbeSyntax) || (!filename && !(target && target.tagName === 'SCRIPT')));
+
+            if (!jsBooted && hasLegacyEntry && isProbeOrModernError) {
+              diag.recordError('Fallback legacy acionado: ' + errText);
+              var statusEl = document.getElementById('boot-status-text');
+              if (statusEl) {
+                statusEl.textContent = 'Carregando modo compatível…';
+              }
+              setTimeout(function () {
+                var started = false;
+                for (var m = 0; m < diag.steps.length; m++) {
+                  if (diag.steps[m].label === 'JS inicializado') {
+                    started = true;
+                    break;
+                  }
+                }
+                if (!started && !diag.done) {
+                  showBootIssue(errText);
+                }
+              }, 8000);
               return;
             }
-            showBootError('Erro ao iniciar: ' + ((e && e.message) || 'Falha de script'));
+
+            showBootIssue(errText);
           },
           true
         );
+
         window.addEventListener('unhandledrejection', function (e) {
           var reason = e && e.reason && (e.reason.message || String(e.reason));
-          showBootError('Erro assíncrono: ' + (reason || 'Falha ao carregar'));
+          showBootIssue('Erro assíncrono: ' + (reason || 'Falha ao carregar'));
         });
+
         setTimeout(function () {
-          if (!window.__CAR_CONTROL_BOOTED__) {
-            showBootError(
-              'O WebView desta central demorou para iniciar os módulos JS. Verifique se o Android System WebView está atualizado.'
-            );
+          if (!diag.done && !diag.reactMounted) {
+            var box = document.getElementById('boot-error-box');
+            if (box && box.style.display === 'block' && box.textContent) {
+              diag.recordError('Timeout de 30s após erro anterior');
+              return;
+            }
+            showBootIssue('A inicialização dos scripts ultrapassou 30 segundos neste dispositivo. Você pode tentar novamente ou ver os detalhes.');
           }
-        }, 7000);
+        }, 30000);
       })();
     </script>
   </head>
   <body class="antialiased selection:bg-amber-500/30" style="background-color:#0b1120;color:#f8fafc;margin:0;">
     <div id="root">
-      <div style="min-height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:center;background:#0b1120;color:#f8fafc;font-family:system-ui,-apple-system,sans-serif;padding:24px;text-align:center;">
+      <div style="min-height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:center;background:#0b1120;color:#f8fafc;font-family:system-ui,-apple-system,sans-serif;padding:20px;text-align:center;">
         <div style="font-size:28px;font-weight:900;letter-spacing:0.05em;">CAR CONTROL</div>
-        <div style="font-size:16px;color:#94a3b8;margin-top:10px;">Carregando painel do veículo...</div>
-        <div id="boot-error-box" style="display:none;margin-top:16px;padding:12px 16px;border-radius:12px;background:#7f1d1d;color:#fecaca;font-size:14px;max-width:520px;word-break:break-word;"></div>
+        <div id="boot-status-text" style="font-size:18px;color:#cbd5e1;margin-top:10px;font-weight:600;">Carregando…</div>
+        <div id="boot-error-box" style="display:none;margin-top:16px;padding:12px 16px;border-radius:12px;background:#7f1d1d;color:#fecaca;font-size:15px;max-width:560px;word-break:break-word;border:1px solid #ef4444;"></div>
+        <div id="boot-actions" style="display:none;margin-top:16px;flex-wrap:wrap;justify-content:center;">
+          <button type="button" onclick="window.location.reload()" style="min-height:52px;padding:0 22px;margin:6px;border-radius:12px;background:#1d4ed8;color:#ffffff;font-size:16px;font-weight:800;border:none;">Tentar novamente</button>
+          <button type="button" onclick="window.__SHOW_BOOT_DETAILS__()" style="min-height:52px;padding:0 22px;margin:6px;border-radius:12px;background:#334155;color:#f8fafc;font-size:16px;font-weight:800;border:1px solid #64748b;">Ver detalhes</button>
+        </div>
+        <pre id="boot-details-box" style="display:none;margin-top:14px;padding:12px 16px;border-radius:12px;background:#0f172a;color:#cbd5e1;font-size:13px;max-width:680px;width:100%;text-align:left;white-space:pre-wrap;word-break:break-word;border:1px solid #334155;max-height:40vh;overflow:auto;"></pre>
       </div>
     </div>
     <script type="module" src="/src/main.tsx"></script>

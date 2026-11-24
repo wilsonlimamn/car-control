@@ -27,7 +27,7 @@ export const Navigation: React.FC<NavigationProps> = ({
         aria-label="Menu principal multimídia"
         className="cockpit-sidebar cockpit-nav-bg fixed top-0 left-0 bottom-0 border-r z-30 select-none flex-col items-stretch shadow-2xl"
       >
-        <nav className="flex flex-col gap-2 w-full h-full items-center">
+        <nav className="flex flex-col space-y-2 w-full h-full items-center">
           {navItems.map((item) => {
             const Icon = item.icon;
             const isActive = currentTab === item.id;
@@ -38,7 +38,7 @@ export const Navigation: React.FC<NavigationProps> = ({
                 onClick={() => onSelectTab(item.id)}
                 aria-label={item.label}
                 aria-current={isActive ? 'page' : undefined}
-                className={`relative w-[116px] flex-1 min-h-[56px] px-2 py-2 rounded-2xl flex flex-col items-center justify-center gap-1.5 transition-all active:scale-95 focus-visible:outline-3 focus-visible:outline-[var(--accent)] ${
+                className={`relative w-[116px] flex-1 min-h-[56px] px-2 py-2 rounded-2xl flex flex-col items-center justify-center space-y-1.5 transition-all active:scale-95 focus-visible:outline-3 focus-visible:outline-[var(--accent)] ${
                   isActive
                     ? 'bg-[var(--accent)] text-[var(--accent-fg)] font-black shadow-[0_0_24px_rgba(var(--accent-rgb),0.45)] border-2 border-[var(--accent-border)]'
                     : 'cockpit-nav-idle'
@@ -73,7 +73,7 @@ export const Navigation: React.FC<NavigationProps> = ({
         aria-label="Menu inferior multimídia"
         className="cockpit-bottom-nav cockpit-nav-bg fixed bottom-0 left-0 right-0 z-40 border-t shadow-[0_-8px_30px_rgba(0,0,0,0.45)]"
       >
-        <div className="grid grid-cols-4 gap-2 max-w-xl mx-auto">
+        <div className="cockpit-grid-4 max-w-xl mx-auto">
           {navItems.map((item) => {
             const Icon = item.icon;
             const isActive = currentTab === item.id;
@@ -84,7 +84,7 @@ export const Navigation: React.FC<NavigationProps> = ({
                 onClick={() => onSelectTab(item.id)}
                 aria-label={item.label}
                 aria-current={isActive ? 'page' : undefined}
-                className={`min-h-[64px] py-2 px-1 rounded-2xl flex flex-col items-center justify-center gap-1 transition-all active:scale-95 focus-visible:outline-3 focus-visible:outline-[var(--accent)] ${
+                className={`min-h-[64px] py-2 px-1 rounded-2xl flex flex-col items-center justify-center space-y-1 transition-all active:scale-95 focus-visible:outline-3 focus-visible:outline-[var(--accent)] ${
                   isActive
                     ? 'bg-[var(--accent)] text-[var(--accent-fg)] font-black shadow-[0_0_20px_rgba(var(--accent-rgb),0.4)]'
                     : 'cockpit-nav-idle'

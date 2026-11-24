@@ -1,30 +1,51 @@
 import React, { useRef, useState, useEffect } from 'react';
-import { 
-  Palette, 
-  Download, 
-  Upload, 
-  FileSpreadsheet, 
-  HardDrive, 
-  Check, 
-  RefreshCw, 
-  ShieldCheck, 
+import {
+  Palette,
+  Download,
+  Upload,
+  FileSpreadsheet,
+  HardDrive,
+  Check,
+  RefreshCw,
+  ShieldCheck,
   AlertCircle,
   Smartphone,
   GitBranch,
-  ExternalLink
+  ExternalLink,
+  Gauge,
+  Copy,
+  FileText,
 } from 'lucide-react';
 import { BgStyleType, ThemeType, Vehicle } from '../types';
-import { 
-  exportCsvReport, 
-  exportSqliteBinary, 
-  getHistory, 
-  getParts, 
+import {
+  exportCsvReport,
+  exportSqliteBinary,
+  getAutoBackupStatus,
+  getHistory,
+  getParts,
+  getPersistenceStatus,
   getSettings,
-  requestStoragePersistence, 
+  isNativeCapacitorPlatform,
+  requestStoragePersistence,
+  restoreLatestAutoBackup,
   restoreSqliteBinary,
+  retryPersistDatabaseNow,
   resetToDefaults,
-  updateSetting
+  subscribePersistenceStatus,
+  triggerManualAutoBackupSnapshot,
+  updateSetting,
 } from '../db/sqlite';
+import { base64ToUint8, uint8ToBase64 } from '../db/schema';
+import type { AutoBackupEntry } from '../db/backupManager';
+import type { PersistenceStatus } from '../db/types';
+import { copyTextWithFallback } from '../utils/diagnostics';
+import {
+  getLowPerfAutoCache,
+  getLowPerfPreference,
+  isLowPerfActive,
+  LowPerfPreference,
+  setLowPerfPreference,
+} from '../utils/diagnostics';
 import { usePWAInstall } from '../hooks/usePWAInstall';
 
 const CURRENT_APP_VERSION = (import.meta.env.VITE_APP_VERSION as string | undefined) || '1.0.0';
@@ -48,6 +69,32 @@ function compareVersions(a: string, b: string): number {
     if (va < vb) return -1;
   }
   return 0;
+}
+
+function formatLastSavedTime(ms: number | null): string {
+  if (!ms) return 'Ainda não gravado';
+  const d = new Date(ms);
+  const hh = String(d.getHours()).padStart(2, '0');
+  const min = String(d.getMinutes()).padStart(2, '0');
+  const ss = String(d.getSeconds()).padStart(2, '0');
+  const now = new Date();
+  const sameDay =
+    d.getDate() === now.getDate() &&
+    d.getMonth() === now.getMonth() &&
+    d.getFullYear() === now.getFullYear();
+  if (sameDay) {
+    return `${hh}:${min}:${ss}`;
+  }
+  const dd = String(d.getDate()).padStart(2, '0');
+  const mm = String(d.getMonth() + 1).padStart(2, '0');
+  return `${dd}/${mm} às ${hh}:${min}:${ss}`;
+}
+
+function getStorageBackendLabel(status: PersistenceStatus): string {
+  if (status.backend === 'indexeddb') return 'IndexedDB';
+  if (status.backend === 'localstorage') return 'localStorage';
+  if (status.allFailed) return 'Indisponível';
+  return 'Aguardando gravação';
 }
 
 interface SettingsViewProps {
@@ -75,7 +122,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   const { isInstallable, isInstalled, isIOS, install } = usePWAInstall();
 
   // GitHub APK update state
-  const [githubRepo, setGithubRepo] = useState<string>(() => getSettings().githubRepo || '');
+  const [githubRepo, setGithubRepo] = useState<string>('wilsonlimamn/car-control');
   const [checkingUpdate, setCheckingUpdate] = useState(false);
   const [updateInfo, setUpdateInfo] = useState<{
     status: 'idle' | 'available' | 'latest' | 'error';
@@ -85,8 +132,41 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
     message?: string;
   }>({ status: 'idle' });
 
+  const [lastAutoBackup, setLastAutoBackup] = useState<AutoBackupEntry | null>(null);
+  const [autoBackups, setAutoBackups] = useState<AutoBackupEntry[]>([]);
+  const [restoringAutoBackup, setRestoringAutoBackup] = useState(false);
+  const [dbStatus, setDbStatus] = useState<PersistenceStatus>(() => getPersistenceStatus());
+  const [retryingSave, setRetryingSave] = useState(false);
+  const [textBackupMode, setTextBackupMode] = useState<'none' | 'export' | 'import'>('none');
+  const [textBackupValue, setTextBackupValue] = useState<string>('');
+  const [restoringText, setRestoringText] = useState(false);
+  const [lowPerfPref, setLowPerfPref] = useState<LowPerfPreference>(() => getLowPerfPreference());
+  const [lowPerfActiveNow, setLowPerfActiveNow] = useState<boolean>(() => isLowPerfActive());
+  const [lowPerfDetail, setLowPerfDetail] = useState<string>(
+    () => getLowPerfAutoCache()?.reason || 'Avaliado automaticamente no boot'
+  );
+
+  const refreshAutoBackups = () => {
+    getAutoBackupStatus()
+      .then((res) => {
+        setLastAutoBackup(res.lastBackup);
+        setAutoBackups(res.backups);
+      })
+      .catch(() => {});
+  };
+
   useEffect(() => {
+    const unsubPersist = subscribePersistenceStatus((st) => {
+      setDbStatus(st);
+    });
     checkStorage();
+    refreshAutoBackups();
+    getSettings()
+      .then((st) => {
+        if (st.githubRepo) setGithubRepo(st.githubRepo);
+      })
+      .catch(() => {});
+    return unsubPersist;
   }, []);
 
   const checkStorage = async () => {
@@ -158,10 +238,82 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
-      URL.revokeObjectURL(url);
-      setStatusMsg({ text: 'Backup SQLite baixado com sucesso!' });
+      window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+      setStatusMsg({
+        text: isNativeCapacitorPlatform()
+          ? 'Download do .sqlite iniciado. Se o WebView não baixar arquivos, toque em "Copiar backup (texto)".'
+          : 'Backup SQLite baixado com sucesso!',
+      });
     } catch (err) {
-      setStatusMsg({ text: 'Erro ao gerar backup: ' + (err as Error).message, isError: true });
+      setStatusMsg({
+        text:
+          'Download direto indisponível (' +
+          (err as Error).message +
+          '). Use "Copiar backup (texto)" como alternativa.',
+        isError: true,
+      });
+    }
+  };
+
+  // Copy SQLite backup as text (Base64) for Android WebViews where file download fails
+  const handleCopyTextBackup = async () => {
+    try {
+      const bytes = await exportSqliteBinary();
+      const b64 = uint8ToBase64(bytes);
+      setTextBackupValue(b64);
+      setTextBackupMode('export');
+      const copied = await copyTextWithFallback(b64);
+      if (copied) {
+        setStatusMsg({ text: 'Backup em texto copiado! Guarde em local seguro ou envie para outro aparelho.' });
+      } else {
+        setStatusMsg({
+          text: 'Backup em texto gerado abaixo. Selecione e copie manualmente caso o WebView bloqueie a cópia.',
+        });
+      }
+    } catch (err) {
+      setStatusMsg({ text: 'Erro ao gerar backup em texto: ' + (err as Error).message, isError: true });
+    }
+  };
+
+  const handleRestoreTextBackup = async () => {
+    const raw = textBackupValue.trim();
+    if (!raw) {
+      setStatusMsg({ text: 'Cole o texto do backup antes de restaurar.', isError: true });
+      return;
+    }
+    setRestoringText(true);
+    try {
+      const bytes = base64ToUint8(raw);
+      await restoreSqliteBinary(bytes);
+      setTextBackupMode('none');
+      setTextBackupValue('');
+      setStatusMsg({ text: 'Backup em texto restaurado com sucesso!' });
+      onReloadData();
+    } catch (err) {
+      setStatusMsg({
+        text: 'Texto de backup inválido: ' + (err as Error).message,
+        isError: true,
+      });
+    } finally {
+      setRestoringText(false);
+    }
+  };
+
+  const handleRetrySaveNow = async () => {
+    setRetryingSave(true);
+    try {
+      const ok = await retryPersistDatabaseNow();
+      if (ok) {
+        setStatusMsg({ text: 'Dados gravados com sucesso neste aparelho!' });
+      } else {
+        const latest = getPersistenceStatus();
+        setStatusMsg({
+          text: 'Falha ao gravar: ' + (latest.lastError || 'IndexedDB e localStorage indisponíveis.'),
+          isError: true,
+        });
+      }
+    } finally {
+      setRetryingSave(false);
     }
   };
 
@@ -184,38 +336,100 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   };
 
   // Export CSV Report (BOM UTF-8, separator ;)
-  const handleDownloadCsv = () => {
+  const handleDownloadCsv = async () => {
     try {
-      const parts = getParts(activeVehicle.id);
-      const history = getHistory(activeVehicle.id);
+      const parts = await getParts(activeVehicle.id);
+      const history = await getHistory(activeVehicle.id);
       const csvContent = exportCsvReport(activeVehicle, parts, history);
 
-      const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      const dateStr = new Date().toISOString().slice(0, 10);
-      a.href = url;
-      a.download = `relatorio_manutencao_${activeVehicle.name.toLowerCase().replace(/\s+/g, '_')}_${dateStr}.csv`;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      URL.revokeObjectURL(url);
-      setStatusMsg({ text: 'Relatório CSV exportado com sucesso!' });
+      try {
+        const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        const dateStr = new Date().toISOString().slice(0, 10);
+        a.href = url;
+        a.download = `relatorio_manutencao_${activeVehicle.name.toLowerCase().replace(/\s+/g, '_')}_${dateStr}.csv`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+        setStatusMsg({
+          text: isNativeCapacitorPlatform()
+            ? 'Exportação CSV acionada. Se o WebView não baixar, use "Copiar backup (texto)".'
+            : 'Relatório CSV exportado com sucesso!',
+        });
+      } catch (downloadErr) {
+        const copied = await copyTextWithFallback(csvContent);
+        if (copied) {
+          setStatusMsg({ text: 'Download bloqueado no WebView; relatório CSV copiado para a área de transferência!' });
+        } else {
+          throw downloadErr;
+        }
+      }
     } catch (err) {
       setStatusMsg({ text: 'Erro ao exportar CSV: ' + (err as Error).message, isError: true });
     }
   };
 
-  const handleResetData = () => {
-    resetToDefaults();
+  const handleResetData = async () => {
+    await resetToDefaults();
     setConfirmReset(false);
-    onReloadData();
+    await onReloadData();
     setStatusMsg({ text: 'Dados restaurados para os padrões originais com sucesso!' });
+  };
+
+  const handleRestoreAutoBackup = async (backupId?: string) => {
+    setRestoringAutoBackup(true);
+    try {
+      const res = await restoreLatestAutoBackup(backupId);
+      if (res.restored && res.entry) {
+        setStatusMsg({ text: `Dados restaurados do backup de ${res.entry.dateText}` });
+        await onReloadData();
+        refreshAutoBackups();
+      } else {
+        setStatusMsg({ text: 'Nenhum backup automático encontrado neste aparelho.', isError: true });
+      }
+    } catch (err) {
+      setStatusMsg({
+        text: 'Falha ao restaurar backup automático: ' + (err as Error).message,
+        isError: true,
+      });
+    } finally {
+      setRestoringAutoBackup(false);
+    }
+  };
+
+  const handleSaveAutoBackupNow = async () => {
+    try {
+      const entry = await triggerManualAutoBackupSnapshot();
+      refreshAutoBackups();
+      if (entry) {
+        setStatusMsg({ text: `Backup automático atualizado (${entry.dateTimeText}).` });
+      }
+    } catch (err) {
+      setStatusMsg({ text: 'Erro ao gravar backup automático: ' + (err as Error).message, isError: true });
+    }
+  };
+
+  const handleChangeLowPerf = (next: LowPerfPreference) => {
+    const active = setLowPerfPreference(next);
+    setLowPerfPref(next);
+    setLowPerfActiveNow(active);
+    const cache = getLowPerfAutoCache();
+    setLowPerfDetail(cache?.reason || 'Avaliado automaticamente');
+    const labels: Record<LowPerfPreference, string> = {
+      auto: 'Automático',
+      on: 'Ligado',
+      off: 'Desligado',
+    };
+    setStatusMsg({
+      text: `Modo leve alterado para "${labels[next]}" (${active ? 'efeitos reduzidos ativos' : 'efeitos visuais completos'}).`,
+    });
   };
 
   const handleSaveGithubRepo = (value: string) => {
     setGithubRepo(value);
-    updateSetting('githubRepo', normalizeRepoPath(value));
+    void updateSetting('githubRepo', normalizeRepoPath(value));
   };
 
   const handleCheckGithubUpdate = async () => {
@@ -228,7 +442,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
       return;
     }
 
-    updateSetting('githubRepo', cleanRepo);
+    await updateSetting('githubRepo', cleanRepo);
     setGithubRepo(cleanRepo);
     setCheckingUpdate(true);
     setUpdateInfo({ status: 'idle' });
@@ -292,7 +506,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   };
 
   return (
-    <div className="flex flex-col gap-6 w-full max-w-5xl mx-auto pb-16 animate-in fade-in duration-200">
+    <div className="flex flex-col space-y-6 w-full max-w-5xl mx-auto pb-16 animate-in fade-in duration-200">
       <div>
         <h2 className="text-3xl sm:text-4xl font-black cockpit-text-primary tracking-tight uppercase">
           Ajustes do Cockpit
@@ -301,11 +515,11 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
 
       {statusMsg && (
         <div
-          className={`p-5 rounded-2xl flex items-center justify-between gap-4 border-2 ${
+          className={`p-5 rounded-2xl flex items-center justify-between space-x-4 border-2 ${
             statusMsg.isError ? 'cockpit-alert-exp' : 'cockpit-alert-ok'
           }`}
         >
-          <div className="flex items-center gap-3">
+          <div className="flex items-center space-x-3">
             {statusMsg.isError ? <AlertCircle size={26} /> : <Check size={26} />}
             <span className="font-black text-lg">{statusMsg.text}</span>
           </div>
@@ -320,8 +534,8 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
       )}
 
       {/* SEÇÃO 1: Os 6 Temas em amostras grandes (80px) */}
-      <div className="cockpit-card rounded-3xl p-6 sm:p-8 flex flex-col gap-5">
-        <div className="flex items-center gap-3">
+      <div className="cockpit-card rounded-3xl p-6 sm:p-8 flex flex-col space-y-5">
+        <div className="flex items-center space-x-3">
           <div className="cockpit-subcard w-12 h-12 rounded-2xl flex items-center justify-center text-[var(--accent-text)]">
             <Palette size={26} />
           </div>
@@ -340,7 +554,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                 key={t.id}
                 type="button"
                 onClick={() => onThemeChange(t.id)}
-                className={`flex flex-col items-center gap-2.5 p-3.5 rounded-2xl border-2 transition-all active:scale-95 ${
+                className={`flex flex-col items-center space-y-2.5 p-3.5 rounded-2xl border-2 transition-all active:scale-95 ${
                   isSelected
                     ? 'cockpit-btn-secondary border-[var(--accent)] shadow-[0_0_24px_rgba(var(--accent-rgb),0.4)]'
                     : 'cockpit-subcard hover:opacity-95'
@@ -367,7 +581,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
       </div>
 
       {/* SEÇÃO 2: Os 4 Estilos de Fundo */}
-      <div className="cockpit-card rounded-3xl p-6 sm:p-8 flex flex-col gap-5">
+      <div className="cockpit-card rounded-3xl p-6 sm:p-8 flex flex-col space-y-5">
         <h3 className="text-2xl font-black cockpit-text-primary tracking-tight uppercase">
           Estilo do Fundo (4 Modos)
         </h3>
@@ -380,13 +594,13 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                 key={b.id}
                 type="button"
                 onClick={() => onBgStyleChange(b.id)}
-                className={`min-h-[84px] p-5 rounded-2xl border-2 text-left flex items-center justify-between gap-4 transition-all active:scale-98 ${
+                className={`min-h-[84px] p-5 rounded-2xl border-2 text-left flex items-center justify-between space-x-4 transition-all active:scale-98 ${
                   isSelected
-                    ? 'bg-[var(--accent)]/15 border-[var(--accent)] shadow-[0_0_24px_rgba(var(--accent-rgb),0.28)]'
+                    ? 'bg-accent/15 border-[var(--accent)] shadow-[0_0_24px_rgba(var(--accent-rgb),0.28)]'
                     : 'cockpit-subcard hover:opacity-95'
                 }`}
               >
-                <div className="flex items-center gap-4 min-w-0">
+                <div className="flex items-center space-x-4 min-w-0">
                   <div className={`w-12 h-12 rounded-xl border-2 shrink-0 shadow-sm ${b.swatchClass}`} />
                   <div className="min-w-0">
                     <h4 className="text-xl font-black cockpit-text-primary leading-tight">{b.label}</h4>
@@ -404,9 +618,66 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
         </div>
       </div>
 
+      {/* SEÇÃO 2.5: Modo Leve (Desempenho para Centrais com 1 GB RAM) */}
+      <div className="cockpit-card rounded-3xl p-6 sm:p-8 flex flex-col space-y-5">
+        <div className="flex flex-wrap items-center justify-between cockpit-wrap-3">
+          <div className="flex items-center space-x-3">
+            <div className="cockpit-subcard w-12 h-12 rounded-2xl flex items-center justify-center text-[var(--accent-text)]">
+              <Gauge size={26} />
+            </div>
+            <div>
+              <h3 className="text-2xl font-black cockpit-text-primary tracking-tight uppercase">
+                Modo Leve (Desempenho)
+              </h3>
+              <p className="text-sm sm:text-base cockpit-text-secondary font-bold mt-0.5">
+                Reduz sombras, blur e animações pesadas. Status atual:{' '}
+                <span className="cockpit-text-primary">{lowPerfActiveNow ? 'Ativado' : 'Desativado'}</span>
+                {lowPerfPref === 'auto' ? ` (${lowPerfDetail})` : ''}
+              </p>
+            </div>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+          {(
+            [
+              { id: 'auto', label: 'Automático', desc: 'Detecta RAM, CPU e tempo de boot' },
+              { id: 'on', label: 'Ligado', desc: 'Sempre sem sombras e animações' },
+              { id: 'off', label: 'Desligado', desc: 'Visual completo com efeitos' },
+            ] as const
+          ).map((opt) => {
+            const isSelected = lowPerfPref === opt.id;
+            return (
+              <button
+                key={opt.id}
+                type="button"
+                onClick={() => handleChangeLowPerf(opt.id)}
+                className={`min-h-[72px] p-4 rounded-2xl border-2 text-left flex items-center justify-between space-x-3 transition-all ${
+                  isSelected
+                    ? 'bg-accent/15 border-[var(--accent)]'
+                    : 'cockpit-subcard hover:opacity-95'
+                }`}
+              >
+                <div>
+                  <div className="text-lg font-black cockpit-text-primary">{opt.label}</div>
+                  <div className="text-xs sm:text-sm cockpit-text-secondary font-semibold mt-0.5">
+                    {opt.desc}
+                  </div>
+                </div>
+                {isSelected && (
+                  <div className="w-8 h-8 rounded-xl bg-[var(--accent)] text-[var(--accent-fg)] flex items-center justify-center shrink-0">
+                    <Check size={18} strokeWidth={3.5} />
+                  </div>
+                )}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
       {/* SEÇÃO 3: Backup SQLite & Exportação CSV */}
-      <div className="cockpit-card rounded-3xl p-6 sm:p-8 flex flex-col gap-6">
-        <div className="flex items-center gap-3">
+      <div className="cockpit-card rounded-3xl p-6 sm:p-8 flex flex-col space-y-6">
+        <div className="flex items-center space-x-3">
           <div className="cockpit-subcard w-12 h-12 rounded-2xl flex items-center justify-center text-[var(--accent-text)]">
             <HardDrive size={26} />
           </div>
@@ -417,22 +688,57 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
           </div>
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        {/* Linha de status: Dados salvos neste aparelho */}
+        <div
+          className={`p-4 rounded-2xl border flex flex-col sm:flex-row sm:items-center justify-between space-y-2.5 sm:space-y-0 sm:space-x-4 ${
+            dbStatus.allFailed ? 'cockpit-alert-warn' : 'cockpit-subcard'
+          }`}
+        >
+          <div className="flex items-center space-x-3 min-w-0">
+            <ShieldCheck
+              size={22}
+              className={dbStatus.allFailed ? 'shrink-0' : 'text-emerald-400 shrink-0'}
+            />
+            <div className="min-w-0 text-sm sm:text-base font-bold cockpit-text-primary leading-snug">
+              <span className="font-black">Dados salvos neste aparelho</span>
+              <span className="cockpit-text-secondary">
+                {' — '}
+                {dbStatus.saving
+                  ? 'Salvando alterações…'
+                  : dbStatus.allFailed
+                  ? `Falha ao gravar: ${dbStatus.lastError || 'IndexedDB e localStorage falharam'}`
+                  : `Última gravação: ${formatLastSavedTime(dbStatus.lastSavedAtMs)} • Armazenamento: ${getStorageBackendLabel(dbStatus)}`}
+              </span>
+            </div>
+          </div>
+          {dbStatus.allFailed && (
+            <button
+              type="button"
+              disabled={retryingSave}
+              onClick={handleRetrySaveNow}
+              className="min-h-[44px] px-4 rounded-xl bg-[var(--accent)] text-[var(--accent-fg)] font-black text-sm shrink-0 disabled:opacity-60"
+            >
+              {retryingSave ? 'Tentando…' : 'Tentar novamente'}
+            </button>
+          )}
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
           <button
             type="button"
             onClick={handleDownloadBackup}
-            className="cockpit-btn-secondary min-h-[72px] p-5 rounded-2xl active:scale-95 font-black text-lg flex items-center justify-center gap-3 transition-all text-center"
+            className="cockpit-btn-secondary min-h-[72px] p-4 rounded-2xl active:scale-95 font-black text-base sm:text-lg flex items-center justify-center space-x-2.5 transition-all text-center"
           >
-            <Download size={24} className="text-amber-500 shrink-0" />
+            <Download size={22} className="text-amber-500 shrink-0" />
             <span>Baixar Backup (.sqlite)</span>
           </button>
 
           <button
             type="button"
             onClick={() => fileInputRef.current?.click()}
-            className="cockpit-btn-secondary min-h-[72px] p-5 rounded-2xl active:scale-95 font-black text-lg flex items-center justify-center gap-3 transition-all text-center"
+            className="cockpit-btn-secondary min-h-[72px] p-4 rounded-2xl active:scale-95 font-black text-base sm:text-lg flex items-center justify-center space-x-2.5 transition-all text-center"
           >
-            <Upload size={24} className="text-cyan-500 shrink-0" />
+            <Upload size={22} className="text-cyan-500 shrink-0" />
             <span>Restaurar (.sqlite)</span>
           </button>
           <input
@@ -446,39 +752,160 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
           <button
             type="button"
             onClick={handleDownloadCsv}
-            className="cockpit-btn-secondary min-h-[72px] p-5 rounded-2xl active:scale-95 font-black text-lg flex items-center justify-center gap-3 transition-all text-center"
+            className="cockpit-btn-secondary min-h-[72px] p-4 rounded-2xl active:scale-95 font-black text-base sm:text-lg flex items-center justify-center space-x-2.5 transition-all text-center"
           >
-            <FileSpreadsheet size={24} className="text-emerald-500 shrink-0" />
+            <FileSpreadsheet size={22} className="text-emerald-500 shrink-0" />
             <span>Exportar CSV (Excel)</span>
           </button>
-        </div>
-
-        {/* Armazenamento Persistente */}
-        <div className="cockpit-subcard p-6 rounded-2xl flex flex-col md:flex-row md:items-center justify-between gap-5">
-          <div className="flex items-start gap-4">
-            <div className="cockpit-display w-12 h-12 rounded-xl flex items-center justify-center cockpit-text-primary shrink-0">
-              <ShieldCheck size={26} />
-            </div>
-            <div>
-              <h4 className="text-lg font-black cockpit-text-primary">Armazenamento no Navegador</h4>
-              <p className="text-base cockpit-text-secondary font-bold mt-0.5">{persistStatus}</p>
-            </div>
-          </div>
 
           <button
             type="button"
-            onClick={handleRequestPersistence}
-            className="cockpit-btn-secondary min-h-[58px] px-6 rounded-2xl font-black text-base shrink-0 transition-all active:scale-95"
+            onClick={handleCopyTextBackup}
+            className="cockpit-btn-secondary min-h-[72px] p-4 rounded-2xl active:scale-95 font-black text-base sm:text-lg flex items-center justify-center space-x-2.5 transition-all text-center"
           >
-            Solicitar Persistência Total
+            <Copy size={22} className="text-blue-400 shrink-0" />
+            <span>Copiar backup (texto)</span>
           </button>
+        </div>
+
+        <div className="flex flex-wrap items-center justify-between cockpit-wrap-2 text-xs sm:text-sm cockpit-text-secondary font-bold">
+          <span>
+            No WebView Android, se o download direto não iniciar, use &quot;Copiar backup (texto)&quot;.
+          </span>
+          <button
+            type="button"
+            onClick={() => {
+              if (textBackupMode === 'import') {
+                setTextBackupMode('none');
+              } else {
+                setTextBackupValue('');
+                setTextBackupMode('import');
+              }
+            }}
+            className="underline font-black cockpit-text-primary hover:opacity-80 flex items-center space-x-1.5"
+          >
+            <FileText size={16} />
+            <span>{textBackupMode === 'import' ? 'Fechar restauração por texto' : 'Colar backup (texto)'}</span>
+          </button>
+        </div>
+
+        {textBackupMode !== 'none' && (
+          <div className="cockpit-subcard p-4 sm:p-5 rounded-2xl flex flex-col space-y-3 border border-[var(--accent-border)]">
+            <div className="flex flex-wrap items-center justify-between cockpit-wrap-2">
+              <h4 className="text-base font-black cockpit-text-primary">
+                {textBackupMode === 'export'
+                  ? 'Backup em texto (Base64 do arquivo .sqlite)'
+                  : 'Colar backup em texto para restaurar'}
+              </h4>
+              <button
+                type="button"
+                onClick={() => setTextBackupMode('none')}
+                className="text-xs uppercase font-black px-3 py-1.5 rounded-xl bg-black/25 hover:bg-black/40 cockpit-text-primary"
+              >
+                Fechar
+              </button>
+            </div>
+            <textarea
+              value={textBackupValue}
+              onChange={(e) => {
+                if (textBackupMode === 'import') setTextBackupValue(e.target.value);
+              }}
+              readOnly={textBackupMode === 'export'}
+              rows={4}
+              placeholder={
+                textBackupMode === 'import'
+                  ? 'Cole aqui o texto gerado anteriormente por "Copiar backup (texto)"...'
+                  : ''
+              }
+              className="cockpit-input w-full p-3 rounded-xl text-xs font-mono break-all focus:border-[var(--accent)] focus:outline-none"
+            />
+            <div className="flex flex-wrap items-center cockpit-wrap-2">
+              {textBackupMode === 'export' ? (
+                <button
+                  type="button"
+                  onClick={handleCopyTextBackup}
+                  className="min-h-[48px] px-5 rounded-xl bg-[var(--accent)] text-[var(--accent-fg)] font-black text-sm flex items-center space-x-2"
+                >
+                  <Copy size={18} />
+                  <span>Copiar novamente</span>
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  disabled={restoringText}
+                  onClick={handleRestoreTextBackup}
+                  className="min-h-[48px] px-5 rounded-xl bg-[var(--accent)] text-[var(--accent-fg)] font-black text-sm disabled:opacity-60"
+                >
+                  {restoringText ? 'Restaurando…' : 'Restaurar backup colado'}
+                </button>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* Backup Automático & Armazenamento Persistente */}
+        <div className="cockpit-subcard p-6 rounded-2xl flex flex-col space-y-4">
+          <div className="flex flex-col md:flex-row md:items-center justify-between space-y-4 md:space-y-0 md:space-x-4">
+            <div>
+              <h4 className="text-lg font-black cockpit-text-primary">Backup Automático Local (Últimas 3 cópias)</h4>
+              <p className="text-base cockpit-text-secondary font-bold mt-0.5">
+                Último backup automático:{' '}
+                <span className="cockpit-text-primary font-mono-numbers">
+                  {lastAutoBackup ? lastAutoBackup.dateTimeText : 'Nenhum gravado ainda'}
+                </span>
+              </p>
+              {autoBackups.length > 1 && (
+                <p className="text-xs sm:text-sm cockpit-text-muted font-semibold mt-1">
+                  Cópias disponíveis: {autoBackups.map((b) => b.dateTimeText).join(' • ')}
+                </p>
+              )}
+            </div>
+
+            <div className="flex flex-wrap items-center cockpit-wrap-2.5 shrink-0">
+              <button
+                type="button"
+                onClick={handleSaveAutoBackupNow}
+                className="cockpit-btn-secondary min-h-[54px] px-5 rounded-2xl font-black text-sm sm:text-base transition-all active:scale-95"
+              >
+                Salvar Agora
+              </button>
+              <button
+                type="button"
+                disabled={restoringAutoBackup || !lastAutoBackup}
+                onClick={() => handleRestoreAutoBackup(lastAutoBackup?.id)}
+                className="min-h-[54px] px-6 rounded-2xl bg-[var(--accent)] text-[var(--accent-fg)] font-black text-sm sm:text-base transition-all active:scale-95 disabled:opacity-50"
+              >
+                {restoringAutoBackup ? 'Restaurando…' : 'Restaurar backup'}
+              </button>
+            </div>
+          </div>
+
+          <div className="pt-4 border-t cockpit-divider flex flex-col md:flex-row md:items-center justify-between space-y-5 md:space-y-0 md:space-x-5">
+            <div className="flex items-start space-x-4">
+              <div className="cockpit-display w-12 h-12 rounded-xl flex items-center justify-center cockpit-text-primary shrink-0">
+                <ShieldCheck size={26} />
+              </div>
+              <div>
+                <h4 className="text-lg font-black cockpit-text-primary">Armazenamento no Navegador</h4>
+                <p className="text-base cockpit-text-secondary font-bold mt-0.5">{persistStatus}</p>
+              </div>
+            </div>
+
+            <button
+              type="button"
+              onClick={handleRequestPersistence}
+              className="cockpit-btn-secondary min-h-[58px] px-6 rounded-2xl font-black text-base shrink-0 transition-all active:scale-95"
+            >
+              Solicitar Persistência Total
+            </button>
+          </div>
         </div>
 
         {/* Instalar App na Central / Tela Inicial (PWA) */}
         {!isInstalled && (isInstallable || isIOS) && (
-          <div className="p-6 rounded-2xl bg-[var(--accent)]/10 border-2 border-[var(--accent)]/40 flex flex-col md:flex-row md:items-center justify-between gap-4">
-            <div className="flex items-start gap-4">
-              <div className="w-12 h-12 rounded-xl bg-[var(--accent)]/20 flex items-center justify-center text-[var(--accent-text)] shrink-0">
+          <div className="p-6 rounded-2xl bg-accent/10 border-2 border-accent/40 flex flex-col md:flex-row md:items-center justify-between space-y-4 md:space-y-0 md:space-x-4">
+            <div className="flex items-start space-x-4">
+              <div className="w-12 h-12 rounded-xl bg-accent/20 flex items-center justify-center text-[var(--accent-text)] shrink-0">
                 <Smartphone size={26} />
               </div>
               <div>
@@ -493,10 +920,10 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
               <button
                 type="button"
                 onClick={install}
-                className="min-h-[60px] px-7 rounded-2xl bg-[var(--accent)] hover:brightness-110 active:scale-95 text-[var(--accent-fg)] font-black text-base shrink-0 shadow-[0_0_20px_rgba(var(--accent-rgb),0.4)] transition-all flex items-center justify-center gap-2.5"
+                className="min-h-[60px] px-7 rounded-2xl bg-[var(--accent)] hover:brightness-110 active:scale-95 text-[var(--accent-fg)] font-black text-base shrink-0 shadow-[0_0_20px_rgba(var(--accent-rgb),0.4)] transition-all flex items-center justify-center space-x-2.5"
               >
                 <Download size={22} strokeWidth={2.8} />
-                Instalar Aplicativo
+                <span>Instalar Aplicativo</span>
               </button>
             ) : (
               <button
@@ -518,9 +945,9 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
         )}
 
         {/* Atualização pelo GitHub (APK) */}
-        <div className="cockpit-subcard p-6 rounded-2xl flex flex-col gap-4">
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <div className="flex items-center gap-3">
+        <div className="cockpit-subcard p-6 rounded-2xl flex flex-col space-y-4">
+          <div className="flex flex-wrap items-center justify-between cockpit-wrap-3">
+            <div className="flex items-center space-x-3">
               <div className="cockpit-display w-12 h-12 rounded-xl flex items-center justify-center text-[var(--accent-text)] shrink-0">
                 <GitBranch size={24} />
               </div>
@@ -538,14 +965,14 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
               type="button"
               onClick={handleCheckGithubUpdate}
               disabled={checkingUpdate}
-              className="cockpit-btn-secondary min-h-[58px] px-6 rounded-2xl font-black text-base flex items-center justify-center gap-2 transition-all active:scale-95 disabled:opacity-60"
+              className="cockpit-btn-secondary min-h-[58px] px-6 rounded-2xl font-black text-base flex items-center justify-center space-x-2 transition-all active:scale-95 disabled:opacity-60"
             >
               <RefreshCw size={20} className={checkingUpdate ? 'animate-spin' : ''} />
-              {checkingUpdate ? 'Consultando GitHub...' : 'Verificar Atualização'}
+              <span>{checkingUpdate ? 'Consultando GitHub...' : 'Verificar Atualização'}</span>
             </button>
           </div>
 
-          <div className="flex flex-col sm:flex-row sm:items-center gap-2">
+          <div className="flex flex-col sm:flex-row sm:items-center space-y-2 sm:space-y-0 sm:space-x-2">
             <label htmlFor="github-repo-input" className="text-[14px] font-bold cockpit-text-secondary shrink-0">
               Repositório GitHub:
             </label>
@@ -560,7 +987,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
           </div>
 
           {updateInfo.status === 'available' && (
-            <div className="cockpit-alert-warn p-4 rounded-2xl flex flex-wrap items-center justify-between gap-3">
+            <div className="cockpit-alert-warn p-4 rounded-2xl flex flex-wrap items-center justify-between cockpit-wrap-3">
               <div>
                 <p className="text-base font-black">
                   Nova versão disponível: v{updateInfo.latestVersion}
@@ -573,32 +1000,32 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                 <a
                   href={updateInfo.downloadUrl}
                   download
-                  className="min-h-[58px] px-6 rounded-2xl bg-[var(--accent)] hover:brightness-110 active:scale-95 text-[var(--accent-fg)] font-black text-base flex items-center justify-center gap-2 shadow-md"
+                  className="min-h-[58px] px-6 rounded-2xl bg-[var(--accent)] hover:brightness-110 active:scale-95 text-[var(--accent-fg)] font-black text-base flex items-center justify-center space-x-2 shadow-md"
                 >
                   <Download size={20} strokeWidth={2.8} />
-                  Baixar APK v{updateInfo.latestVersion}
+                  <span>Baixar APK v{updateInfo.latestVersion}</span>
                 </a>
               ) : updateInfo.releasePageUrl ? (
                 <a
                   href={updateInfo.releasePageUrl}
-                  className="min-h-[58px] px-6 rounded-2xl bg-[var(--accent)] hover:brightness-110 active:scale-95 text-[var(--accent-fg)] font-black text-base flex items-center justify-center gap-2 shadow-md"
+                  className="min-h-[58px] px-6 rounded-2xl bg-[var(--accent)] hover:brightness-110 active:scale-95 text-[var(--accent-fg)] font-black text-base flex items-center justify-center space-x-2 shadow-md"
                 >
                   <ExternalLink size={20} />
-                  Abrir Release
+                  <span>Abrir Release</span>
                 </a>
               ) : null}
             </div>
           )}
 
           {updateInfo.status === 'latest' && (
-            <div className="cockpit-alert-ok p-4 rounded-2xl flex items-center gap-2.5 text-base font-black">
+            <div className="cockpit-alert-ok p-4 rounded-2xl flex items-center space-x-2.5 text-base font-black">
               <Check size={22} strokeWidth={3} />
-              Você já está na versão mais recente (v{updateInfo.latestVersion}).
+              <span>Você já está na versão mais recente (v{updateInfo.latestVersion}).</span>
             </div>
           )}
 
           {updateInfo.status === 'error' && (
-            <div className="cockpit-alert-exp p-4 rounded-2xl flex items-center gap-2.5 text-[14px] sm:text-base font-bold">
+            <div className="cockpit-alert-exp p-4 rounded-2xl flex items-center space-x-2.5 text-[14px] sm:text-base font-bold">
               <AlertCircle size={22} className="shrink-0" />
               <span>{updateInfo.message}</span>
             </div>
@@ -606,10 +1033,10 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
         </div>
 
         {/* Reset de Fábrica */}
-        <div className="pt-3 border-t cockpit-divider flex flex-wrap items-center justify-between gap-3 text-base cockpit-text-secondary font-bold">
+        <div className="pt-3 border-t cockpit-divider flex flex-wrap items-center justify-between cockpit-wrap-3 text-base cockpit-text-secondary font-bold">
           <span>Restaurar dados originais de fábrica?</span>
           {confirmReset ? (
-            <div className="flex items-center gap-2.5">
+            <div className="flex items-center space-x-2.5">
               <button
                 type="button"
                 onClick={() => setConfirmReset(false)}
@@ -629,10 +1056,10 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
             <button
               type="button"
               onClick={() => setConfirmReset(true)}
-              className="min-h-[56px] px-5 rounded-2xl text-red-500 hover:text-red-400 font-black hover:bg-red-500/10 transition-colors flex items-center gap-2 text-base"
+              className="min-h-[56px] px-5 rounded-2xl text-red-500 hover:text-red-400 font-black hover:bg-red-500/10 transition-colors flex items-center space-x-2 text-base"
             >
               <RefreshCw size={20} />
-              Redefinir Padrões
+              <span>Redefinir Padrões</span>
             </button>
           )}
         </div>

@@ -30,10 +30,10 @@ export const ConfirmModal: React.FC<ConfirmModalProps> = ({
       aria-modal="true"
       aria-labelledby="confirm-modal-title"
       aria-describedby="confirm-modal-desc"
-      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 animate-in fade-in duration-150"
+      className="fixed top-0 right-0 bottom-0 left-0 z-50 flex items-center justify-center p-4 bg-black/80 animate-in fade-in duration-150"
     >
-      <div className="cockpit-modal w-full max-w-md rounded-3xl p-6 shadow-2xl flex flex-col gap-5">
-        <div className="flex items-start gap-4">
+      <div className="cockpit-modal w-full max-w-md rounded-3xl p-6 shadow-2xl flex flex-col space-y-5">
+        <div className="flex items-start space-x-4">
           <div
             className={`w-14 h-14 rounded-2xl flex items-center justify-center shrink-0 ${
               isDestructive
@@ -53,26 +53,26 @@ export const ConfirmModal: React.FC<ConfirmModalProps> = ({
           </div>
         </div>
 
-        <div className="grid grid-cols-2 gap-3 pt-2">
+        <div className="cockpit-2col-grid pt-2">
           <button
             type="button"
             onClick={onCancel}
-            className="cockpit-btn-secondary h-16 rounded-2xl font-bold text-base active:scale-98 transition-all flex items-center justify-center gap-2"
+            className="cockpit-btn-secondary h-16 rounded-2xl font-bold text-base active:scale-98 transition-all flex items-center justify-center space-x-2"
           >
             <X size={22} />
-            {cancelLabel}
+            <span>{cancelLabel}</span>
           </button>
           <button
             type="button"
             onClick={onConfirm}
-            className={`h-16 rounded-2xl font-extrabold text-base active:scale-98 transition-all flex items-center justify-center gap-2 ${
+            className={`h-16 rounded-2xl font-extrabold text-base active:scale-98 transition-all flex items-center justify-center space-x-2 ${
               isDestructive
                 ? 'bg-red-600 hover:bg-red-500 text-white shadow-[0_0_20px_rgba(239,68,68,0.4)]'
                 : 'bg-[var(--accent)] hover:brightness-110 text-[var(--accent-fg)] shadow-[0_0_20px_rgba(var(--accent-rgb),0.4)]'
             }`}
           >
             <Check size={22} strokeWidth={3} />
-            {confirmLabel}
+            <span>{confirmLabel}</span>
           </button>
         </div>
       </div>

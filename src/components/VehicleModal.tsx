@@ -46,9 +46,9 @@ export const VehicleModal: React.FC<VehicleModalProps> = ({
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!name.trim()) return;
-    const kmNum = parseInt(km, 10) || 0;
-    const tankNum = parseFloat(tank) || 50;
-    const consNum = parseFloat(consumption) || 10;
+    const kmNum = Math.max(0, parseInt(km.replace(/\D/g, ''), 10) || 0);
+    const tankNum = Math.max(1, parseFloat(tank.replace(',', '.')) || 50);
+    const consNum = Math.max(1, parseFloat(consumption.replace(',', '.')) || 10);
     onSave(name.trim(), plate.trim().toUpperCase(), kmNum, tankNum, consNum, vehicleToEdit?.id);
     onClose();
   };
@@ -58,12 +58,12 @@ export const VehicleModal: React.FC<VehicleModalProps> = ({
       role="dialog"
       aria-modal="true"
       aria-labelledby="vehicle-modal-title"
-      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 animate-in fade-in duration-150"
+      className="fixed top-0 right-0 bottom-0 left-0 z-50 flex items-center justify-center p-4 bg-black/80 animate-in fade-in duration-150"
     >
-      <div className="cockpit-modal w-full max-w-lg rounded-3xl p-6 shadow-2xl flex flex-col gap-5 max-h-[92vh] overflow-y-auto">
-        <div className="flex items-center justify-between pb-2 border-b cockpit-divider">
-          <div className="flex items-center gap-3">
-            <div className="w-12 h-12 rounded-2xl bg-[var(--accent)]/15 border border-[var(--accent)]/30 text-[var(--accent-text)] flex items-center justify-center">
+      <div className="cockpit-modal w-full max-w-lg rounded-3xl p-6 shadow-2xl flex flex-col space-y-5 max-h-[92vh] overflow-y-auto">
+        <div className="flex items-center justify-between space-x-3 pb-2 border-b cockpit-divider">
+          <div className="flex items-center space-x-3 min-w-0">
+            <div className="w-12 h-12 rounded-2xl bg-accent/15 border border-accent/30 text-[var(--accent-text)] flex items-center justify-center shrink-0">
               <Car size={26} />
             </div>
             <div>
@@ -85,7 +85,7 @@ export const VehicleModal: React.FC<VehicleModalProps> = ({
           </button>
         </div>
 
-        <form onSubmit={handleSubmit} className="flex flex-col gap-4">
+        <form onSubmit={handleSubmit} className="flex flex-col space-y-4">
           <div>
             <label className="block text-sm font-semibold cockpit-text-secondary mb-1.5">
               Modelo / Nome do Carro *
@@ -100,7 +100,7 @@ export const VehicleModal: React.FC<VehicleModalProps> = ({
             />
           </div>
 
-          <div className="grid grid-cols-2 gap-3">
+          <div className="cockpit-2col-grid">
             <div>
               <label className="block text-sm font-semibold cockpit-text-secondary mb-1.5">
                 Placa
@@ -128,7 +128,7 @@ export const VehicleModal: React.FC<VehicleModalProps> = ({
             </div>
           </div>
 
-          <div className="grid grid-cols-2 gap-3">
+          <div className="cockpit-2col-grid">
             <div>
               <label className="block text-sm font-semibold cockpit-text-secondary mb-1.5">
                 Tanque (Litros) *
@@ -136,9 +136,10 @@ export const VehicleModal: React.FC<VehicleModalProps> = ({
               <input
                 type="number"
                 required
-                step="0.5"
-                min="10"
-                max="200"
+                inputMode="decimal"
+                step="any"
+                min="1"
+                max="500"
                 value={tank}
                 onChange={(e) => setTank(e.target.value)}
                 className="cockpit-input w-full h-14 px-4 rounded-2xl focus:border-[var(--accent)] focus:outline-none text-lg font-mono-numbers font-bold"
@@ -151,9 +152,10 @@ export const VehicleModal: React.FC<VehicleModalProps> = ({
               <input
                 type="number"
                 required
-                step="0.1"
-                min="3"
-                max="40"
+                inputMode="decimal"
+                step="any"
+                min="1"
+                max="60"
                 value={consumption}
                 onChange={(e) => setConsumption(e.target.value)}
                 className="cockpit-input w-full h-14 px-4 rounded-2xl focus:border-[var(--accent)] focus:outline-none text-lg font-mono-numbers font-bold"
@@ -161,7 +163,7 @@ export const VehicleModal: React.FC<VehicleModalProps> = ({
             </div>
           </div>
 
-          <div className="grid grid-cols-2 gap-3 pt-3">
+          <div className="cockpit-2col-grid pt-3">
             <button
               type="button"
               onClick={onClose}
@@ -171,10 +173,10 @@ export const VehicleModal: React.FC<VehicleModalProps> = ({
             </button>
             <button
               type="submit"
-              className="h-16 rounded-2xl bg-[var(--accent)] hover:brightness-110 active:scale-98 text-[var(--accent-fg)] font-extrabold text-base shadow-[0_0_20px_rgba(var(--accent-rgb),0.4)] flex items-center justify-center gap-2 transition-all"
+              className="h-16 rounded-2xl bg-[var(--accent)] hover:brightness-110 active:scale-98 text-[var(--accent-fg)] font-extrabold text-base shadow-[0_0_20px_rgba(var(--accent-rgb),0.4)] flex items-center justify-center space-x-2 transition-all"
             >
               <Check size={24} strokeWidth={3} />
-              {isEditing ? 'Salvar Alterações' : 'Salvar Carro'}
+              <span>{isEditing ? 'Salvar Alterações' : 'Salvar Carro'}</span>
             </button>
           </div>
         </form>

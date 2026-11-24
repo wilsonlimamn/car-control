@@ -1,0 +1,7 @@
+{
+  "legacyBrowsers": "chrome >= 50, android >= 5",
+  "modernBrowsers": "chrome >= 87",
+  "cssTarget": "chrome50",
+  "esTarget": "es2015",
+  "minTestedChromium": 50
+}

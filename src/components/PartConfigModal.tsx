@@ -116,17 +116,17 @@ export const PartConfigModal: React.FC<PartConfigModalProps> = ({
       role="dialog"
       aria-modal="true"
       aria-labelledby="part-config-title"
-      className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/80 animate-in fade-in duration-150"
+      className="fixed top-0 right-0 bottom-0 left-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/80 animate-in fade-in duration-150"
     >
-      <div className="cockpit-modal w-full max-w-xl rounded-3xl p-5 sm:p-6 shadow-2xl flex flex-col gap-5 max-h-[92vh] overflow-y-auto">
+      <div className="cockpit-modal w-full max-w-xl rounded-3xl p-5 sm:p-6 shadow-2xl flex flex-col space-y-5 max-h-[92vh] overflow-y-auto">
         {/* Header */}
-        <div className="flex items-center justify-between pb-3 border-b cockpit-divider">
-          <div className="flex items-center gap-3">
-            <div className="w-12 h-12 rounded-2xl bg-[var(--accent)]/15 border border-[var(--accent)]/30 text-[var(--accent-text)] flex items-center justify-center">
+        <div className="flex items-center justify-between space-x-3 pb-3 border-b cockpit-divider">
+          <div className="flex items-center space-x-3 min-w-0">
+            <div className="w-12 h-12 rounded-2xl bg-accent/15 border border-accent/30 text-[var(--accent-text)] flex items-center justify-center shrink-0">
               <Wrench size={24} />
             </div>
-            <div>
-              <h3 id="part-config-title" className="text-xl sm:text-2xl font-black tracking-tight cockpit-text-primary">
+            <div className="min-w-0">
+              <h3 id="part-config-title" className="text-xl sm:text-2xl font-black tracking-tight cockpit-text-primary truncate">
                 {isEditing ? `Configurar: ${partToEdit?.name}` : 'Nova Peça de Reposição'}
               </h3>
               <p className="text-sm cockpit-text-muted">
@@ -144,7 +144,7 @@ export const PartConfigModal: React.FC<PartConfigModalProps> = ({
           </button>
         </div>
 
-        <form onSubmit={handleSubmit} className="flex flex-col gap-5">
+        <form onSubmit={handleSubmit} className="flex flex-col space-y-5">
           {/* Nome da Peça */}
           <div>
             <label className="block text-sm font-semibold cockpit-text-secondary mb-1.5">
@@ -165,7 +165,7 @@ export const PartConfigModal: React.FC<PartConfigModalProps> = ({
             <label className="block text-sm font-semibold cockpit-text-secondary mb-1.5">
               Sistema / Categoria *
             </label>
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+            <div className="flex flex-wrap cockpit-wrap-2">
               {categories.map((c) => {
                 const isSelected = category === c.id;
                 return (
@@ -173,7 +173,7 @@ export const PartConfigModal: React.FC<PartConfigModalProps> = ({
                     key={c.id}
                     type="button"
                     onClick={() => setCategory(c.id)}
-                    className={`min-h-[56px] px-2 rounded-xl text-[14px] font-bold border transition-all ${
+                    className={`flex-1 min-w-[115px] min-h-[56px] px-2 rounded-xl text-[14px] font-bold border transition-all ${
                       isSelected
                         ? 'bg-[var(--accent)] text-[var(--accent-fg)] border-[var(--accent-border)] shadow-md'
                         : 'cockpit-subcard hover:opacity-90'
@@ -187,11 +187,11 @@ export const PartConfigModal: React.FC<PartConfigModalProps> = ({
           </div>
 
           {/* 1. Intervalo por Quilometragem */}
-          <div className="cockpit-subcard p-4 rounded-2xl flex flex-col gap-3">
-            <div className="flex items-center justify-between">
-              <label className="text-[14px] font-bold cockpit-text-primary flex items-center gap-2">
+          <div className="cockpit-subcard p-4 rounded-2xl flex flex-col space-y-3">
+            <div className="flex items-center justify-between space-x-2">
+              <label className="text-[14px] font-bold cockpit-text-primary flex items-center space-x-2">
                 <Gauge size={18} className="text-[var(--accent-text)]" />
-                Intervalo por Quilometragem (km)
+                <span>Intervalo por Quilometragem (km)</span>
               </label>
               <span className="text-[14px] cockpit-text-secondary font-mono-numbers font-bold">
                 {kmVal > 0 ? `${formatNumber(kmVal)} km` : 'Desativado'}
@@ -208,7 +208,7 @@ export const PartConfigModal: React.FC<PartConfigModalProps> = ({
               className="cockpit-input w-full h-14 px-4 rounded-xl focus:border-[var(--accent)] focus:outline-none text-xl font-mono-numbers font-bold"
             />
 
-            <div className="flex flex-wrap gap-2 pt-1">
+            <div className="flex flex-wrap cockpit-wrap-2 pt-1">
               {quickKmPresets.map((p) => (
                 <button
                   key={p.val}
@@ -216,7 +216,7 @@ export const PartConfigModal: React.FC<PartConfigModalProps> = ({
                   onClick={() => setIntervalKm(String(p.val))}
                   className={`min-h-[48px] px-3.5 py-2 rounded-xl text-[14px] font-bold border transition-all ${
                     kmVal === p.val
-                      ? 'bg-[var(--accent)]/20 border-[var(--accent)] text-[var(--accent-text)]'
+                      ? 'bg-accent/20 border-[var(--accent)] text-[var(--accent-text)]'
                       : 'cockpit-btn-secondary'
                   }`}
                 >
@@ -227,11 +227,11 @@ export const PartConfigModal: React.FC<PartConfigModalProps> = ({
           </div>
 
           {/* 2. Intervalo por Tempo (Meses) */}
-          <div className="cockpit-subcard p-4 rounded-2xl flex flex-col gap-3">
-            <div className="flex items-center justify-between">
-              <label className="text-[14px] font-bold cockpit-text-primary flex items-center gap-2">
+          <div className="cockpit-subcard p-4 rounded-2xl flex flex-col space-y-3">
+            <div className="flex items-center justify-between space-x-2">
+              <label className="text-[14px] font-bold cockpit-text-primary flex items-center space-x-2">
                 <Calendar size={18} className="text-cyan-500" />
-                Intervalo por Tempo (Meses)
+                <span>Intervalo por Tempo (Meses)</span>
               </label>
               <span className="text-[14px] cockpit-text-secondary font-mono-numbers font-bold">
                 {monthVal > 0
@@ -250,7 +250,7 @@ export const PartConfigModal: React.FC<PartConfigModalProps> = ({
               className="cockpit-input w-full h-14 px-4 rounded-xl focus:border-[var(--accent)] focus:outline-none text-xl font-mono-numbers font-bold"
             />
 
-            <div className="flex flex-wrap gap-2 pt-1">
+            <div className="flex flex-wrap cockpit-wrap-2 pt-1">
               {quickMonthPresets.map((p) => (
                 <button
                   key={p.val}
@@ -269,23 +269,23 @@ export const PartConfigModal: React.FC<PartConfigModalProps> = ({
           </div>
 
           {/* 3. Ponto de Partida / Última Troca */}
-          <div className="cockpit-subcard p-4 rounded-2xl flex flex-col gap-3">
+          <div className="cockpit-subcard p-4 rounded-2xl flex flex-col space-y-3">
             <span className="text-[14px] uppercase tracking-wider cockpit-text-secondary font-bold block">
               Calibragem do Ciclo Atual (Última Troca)
             </span>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <div>
+            <div className="flex flex-col sm:flex-row space-y-3 sm:space-y-0 sm:space-x-3">
+              <div className="flex-1 min-w-0">
                 <label className="block text-[14px] font-semibold cockpit-text-secondary mb-1">
                   Km na Última Troca
                 </label>
-                <div className="flex gap-2">
+                <div className="flex space-x-2">
                   <input
                     type="number"
                     min="0"
                     value={lastChangeKm}
                     onChange={(e) => setLastChangeKm(e.target.value)}
-                    className="cockpit-input flex-1 h-14 px-3 rounded-xl focus:border-[var(--accent)] focus:outline-none text-base font-mono-numbers font-bold"
+                    className="cockpit-input flex-1 min-w-0 h-14 px-3 rounded-xl focus:border-[var(--accent)] focus:outline-none text-base font-mono-numbers font-bold"
                   />
                   <button
                     type="button"
@@ -298,16 +298,16 @@ export const PartConfigModal: React.FC<PartConfigModalProps> = ({
                 </div>
               </div>
 
-              <div>
+              <div className="flex-1 min-w-0">
                 <label className="block text-[14px] font-semibold cockpit-text-secondary mb-1">
                   Data da Última Troca
                 </label>
-                <div className="flex gap-2">
+                <div className="flex space-x-2">
                   <input
                     type="date"
                     value={lastChangeDate}
                     onChange={(e) => setLastChangeDate(e.target.value)}
-                    className="cockpit-input flex-1 h-14 px-3 rounded-xl focus:border-[var(--accent)] focus:outline-none text-[14px] font-mono-numbers font-bold"
+                    className="cockpit-input flex-1 min-w-0 h-14 px-3 rounded-xl focus:border-[var(--accent)] focus:outline-none text-[14px] font-mono-numbers font-bold"
                   />
                   <button
                     type="button"
@@ -323,7 +323,7 @@ export const PartConfigModal: React.FC<PartConfigModalProps> = ({
           </div>
 
           {/* Dica da Regra de Alerta */}
-          <div className="cockpit-subcard p-3.5 rounded-xl flex items-start gap-2.5 text-[14px] cockpit-text-secondary leading-relaxed">
+          <div className="cockpit-subcard p-3.5 rounded-xl flex items-start space-x-2.5 text-[14px] cockpit-text-secondary leading-relaxed">
             <Info size={20} className="cockpit-status-warn shrink-0 mt-0.5" />
             <div>
               <strong className="cockpit-text-primary block font-bold mb-0.5">Como o aviso funciona:</strong>
@@ -334,8 +334,8 @@ export const PartConfigModal: React.FC<PartConfigModalProps> = ({
           </div>
 
           {/* Ações / Botões */}
-          <div className="flex flex-col gap-2.5 pt-2">
-            <div className="grid grid-cols-2 gap-3">
+          <div className="flex flex-col space-y-2.5 pt-2">
+            <div className="cockpit-2col-grid">
               <button
                 type="button"
                 onClick={onClose}
@@ -345,19 +345,19 @@ export const PartConfigModal: React.FC<PartConfigModalProps> = ({
               </button>
               <button
                 type="submit"
-                className="h-16 rounded-2xl bg-[var(--accent)] hover:brightness-110 active:scale-98 text-[var(--accent-fg)] font-extrabold text-base shadow-[0_0_20px_rgba(var(--accent-rgb),0.4)] flex items-center justify-center gap-2 transition-all"
+                className="h-16 rounded-2xl bg-[var(--accent)] hover:brightness-110 active:scale-98 text-[var(--accent-fg)] font-extrabold text-base shadow-[0_0_20px_rgba(var(--accent-rgb),0.4)] flex items-center justify-center space-x-2 transition-all"
               >
                 <Check size={24} strokeWidth={3} />
-                Salvar Configuração
+                <span>Salvar Configuração</span>
               </button>
             </div>
 
             {isEditing && onDelete && (
               <div className="pt-2 border-t cockpit-divider flex justify-end">
                 {showConfirmDelete ? (
-                  <div className="flex items-center gap-2 w-full justify-between">
+                  <div className="flex items-center space-x-2 w-full justify-between">
                     <span className="text-[14px] cockpit-status-exp font-bold">Confirmar exclusão?</span>
-                    <div className="flex gap-2">
+                    <div className="flex space-x-2">
                       <button
                         type="button"
                         onClick={() => setShowConfirmDelete(false)}
@@ -381,10 +381,10 @@ export const PartConfigModal: React.FC<PartConfigModalProps> = ({
                   <button
                     type="button"
                     onClick={() => setShowConfirmDelete(true)}
-                    className="min-h-[56px] text-[14px] font-bold text-red-500 hover:text-red-400 flex items-center gap-2 px-4 rounded-xl hover:bg-red-500/10 transition-colors"
+                    className="min-h-[56px] text-[14px] font-bold text-red-500 hover:text-red-400 flex items-center space-x-2 px-4 rounded-xl hover:bg-red-500/10 transition-colors"
                   >
                     <Trash2 size={18} />
-                    Excluir esta peça
+                    <span>Excluir esta peça</span>
                   </button>
                 )}
               </div>

@@ -1,15 +1,73 @@
-import tailwindcss from '@tailwindcss/vite';
+import { fileURLToPath } from 'node:url';
+import legacy from '@vitejs/plugin-legacy';
 import react from '@vitejs/plugin-react';
+import fs from 'node:fs';
 import path from 'path';
-import {defineConfig} from 'vite';
-import {VitePWA} from 'vite-plugin-pwa';
+import { defineConfig, Plugin } from 'vite';
+import { VitePWA } from 'vite-plugin-pwa';
+
+const rootDir = path.dirname(fileURLToPath(import.meta.url));
+const pkg = JSON.parse(fs.readFileSync(path.resolve(rootDir, 'package.json'), 'utf8'));
+const buildTarget = JSON.parse(fs.readFileSync(path.resolve(rootDir, 'build-target.json'), 'utf8'));
+const isCapacitorBuild = process.env.CAPACITOR_BUILD === 'true';
+
+const legacyTargets = String(buildTarget.legacyBrowsers || 'chrome >= 50, android >= 5')
+  .split(',')
+  .map((s) => s.trim())
+  .filter(Boolean);
+
+function classicAndroidWebViewPlugin(capacitorBuild: boolean): Plugin {
+  return {
+    name: 'classic-android-webview-compat',
+    apply: 'build',
+    transformIndexHtml: {
+      order: 'post',
+      handler(html) {
+        // Strip crossorigin from local script/stylesheet tags to avoid Android WebView CORS quirks,
+        // while keeping type="module" and nomodule intact for @vitejs/plugin-legacy.
+        return html
+          .replace(/(<script\b[^>]*?)\s+crossorigin(?:="[^"]*")?/gi, '$1')
+          .replace(/(<link\b[^>]*?)\s+crossorigin(?:="[^"]*")?/gi, '$1');
+      },
+    },
+    closeBundle() {
+      if (!capacitorBuild) return;
+      const distDir = path.resolve(rootDir, 'dist');
+      for (const file of ['sw.js', 'registerSW.js']) {
+        const target = path.join(distDir, file);
+        if (fs.existsSync(target)) {
+          fs.rmSync(target, { force: true });
+        }
+      }
+      if (fs.existsSync(distDir)) {
+        for (const entry of fs.readdirSync(distDir)) {
+          if (/^workbox-.*\.js$/i.test(entry)) {
+            fs.rmSync(path.join(distDir, entry), { force: true });
+          }
+        }
+      }
+    },
+  };
+}
 
 export default defineConfig(() => {
   return {
+    define: {
+      'import.meta.env.VITE_APP_VERSION': JSON.stringify(pkg.version || '1.0.0'),
+      'import.meta.env.VITE_MIN_CHROMIUM': JSON.stringify(String(buildTarget.minTestedChromium || 50)),
+      'import.meta.env.VITE_GITHUB_REPO': JSON.stringify(process.env.VITE_GITHUB_REPO || 'wilsonlimamn/car-control'),
+    },
     plugins: [
       react(),
-      tailwindcss(),
+      legacy({
+        targets: legacyTargets,
+        modernPolyfills: false,
+        polyfills: true,
+        renderLegacyChunks: true,
+      }),
       VitePWA({
+        disable: isCapacitorBuild,
+        injectRegister: false,
         registerType: 'autoUpdate',
         manifestFilename: 'manifest.json',
         includeAssets: [
@@ -19,6 +77,7 @@ export default defineConfig(() => {
           'pwa-512x512.png',
           'pwa-maskable-512x512.png',
           'sql-wasm.wasm',
+          'sql-asm.js',
         ],
         manifest: {
           id: '/',
@@ -34,19 +93,19 @@ export default defineConfig(() => {
           scope: '/',
           icons: [
             {
-              src: '/pwa-192x192.png',
+              src: 'pwa-192x192.png',
               sizes: '192x192',
               type: 'image/png',
               purpose: 'any',
             },
             {
-              src: '/pwa-512x512.png',
+              src: 'pwa-512x512.png',
               sizes: '512x512',
               type: 'image/png',
               purpose: 'any',
             },
             {
-              src: '/pwa-maskable-512x512.png',
+              src: 'pwa-maskable-512x512.png',
               sizes: '512x512',
               type: 'image/png',
               purpose: 'maskable',
@@ -54,6 +113,8 @@ export default defineConfig(() => {
           ],
         },
         workbox: {
+          cacheId: `car-control-v${pkg.version || '1.0.0'}`,
+          cleanupOutdatedCaches: true,
           globPatterns: ['**/*.{js,css,html,ico,png,svg,wasm,woff,woff2}'],
           maximumFileSizeToCacheInBytes: 5 * 1024 * 1024,
           runtimeCaching: [
@@ -92,22 +153,18 @@ export default defineConfig(() => {
           type: 'module',
         },
       }),
+      classicAndroidWebViewPlugin(isCapacitorBuild),
     ],
     resolve: {
       alias: {
-        '@': path.resolve(__dirname, '.'),
+        '@': rootDir,
       },
     },
     build: {
-      target: 'chrome68',
-      cssTarget: 'chrome83',
-      cssMinify: 'lightningcss' as const,
+      target: buildTarget.esTarget || 'es2015',
+      cssTarget: buildTarget.cssTarget || 'chrome50',
+      cssMinify: 'esbuild' as const,
       modulePreload: false,
-      rolldownOptions: {
-        output: {
-          codeSplitting: false,
-        },
-      },
     },
     server: {
       // HMR is disabled in AI Studio via DISABLE_HMR env var.

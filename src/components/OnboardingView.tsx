@@ -37,7 +37,7 @@ export const OnboardingView: React.FC<OnboardingViewProps> = ({
     }
 
     const parsedKm = Math.max(0, parseInt(km.replace(/\D/g, ''), 10) || 0);
-    const parsedTank = Math.max(10, parseFloat(tank.replace(',', '.')) || 50);
+    const parsedTank = Math.max(1, parseFloat(tank.replace(',', '.')) || 50);
     const parsedConsumption = Math.max(1, parseFloat(consumption.replace(',', '.')) || 10);
 
     setErrorMsg(null);
@@ -65,15 +65,15 @@ export const OnboardingView: React.FC<OnboardingViewProps> = ({
   };
 
   return (
-    <div className="min-h-[100dvh] w-full flex items-center justify-center p-3 sm:p-5 overflow-y-auto">
+    <div className="cockpit-screen-min-h w-full flex items-center justify-center p-3 sm:p-5 overflow-y-auto">
       <form
         onSubmit={handleSubmit}
-        className="cockpit-card w-full max-w-4xl rounded-3xl p-5 sm:p-7 flex flex-col gap-5"
+        className="cockpit-card w-full max-w-4xl rounded-3xl p-5 sm:p-7 flex flex-col space-y-5"
       >
         {/* Header */}
-        <div className="flex flex-wrap items-center justify-between gap-3 pb-3 border-b cockpit-divider">
-          <div className="flex items-center gap-3.5">
-            <div className="w-14 h-14 rounded-2xl bg-[var(--accent)]/20 border-2 border-[var(--accent-border)] text-[var(--accent-text)] flex items-center justify-center shrink-0">
+        <div className="flex flex-wrap items-center justify-between cockpit-wrap-3 pb-3 border-b cockpit-divider">
+          <div className="flex items-center space-x-3.5">
+            <div className="w-14 h-14 rounded-2xl bg-accent/20 border-2 border-[var(--accent-border)] text-[var(--accent-text)] flex items-center justify-center shrink-0">
               <Car size={32} />
             </div>
             <div>
@@ -88,7 +88,7 @@ export const OnboardingView: React.FC<OnboardingViewProps> = ({
         </div>
 
         {errorMsg && (
-          <div className="cockpit-alert-exp rounded-2xl p-3.5 flex items-center gap-2.5 text-base font-bold">
+          <div className="cockpit-alert-exp rounded-2xl p-3.5 flex items-center space-x-2.5 text-base font-bold">
             <AlertCircle size={22} className="shrink-0" />
             <span>{errorMsg}</span>
           </div>
@@ -143,7 +143,9 @@ export const OnboardingView: React.FC<OnboardingViewProps> = ({
             <input
               type="number"
               inputMode="decimal"
-              step="0.5"
+              step="any"
+              min="1"
+              max="500"
               value={tank}
               onChange={(e) => setTank(e.target.value)}
               className="cockpit-input w-full h-14 px-4 rounded-2xl focus:border-[var(--accent)] focus:outline-none text-lg font-mono-numbers font-bold"
@@ -157,7 +159,9 @@ export const OnboardingView: React.FC<OnboardingViewProps> = ({
             <input
               type="number"
               inputMode="decimal"
-              step="0.1"
+              step="any"
+              min="1"
+              max="60"
               value={consumption}
               onChange={(e) => setConsumption(e.target.value)}
               className="cockpit-input w-full h-14 px-4 rounded-2xl focus:border-[var(--accent)] focus:outline-none text-lg font-mono-numbers font-bold"
@@ -166,31 +170,31 @@ export const OnboardingView: React.FC<OnboardingViewProps> = ({
         </div>
 
         {/* Actions */}
-        <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 pt-2">
+        <div className="flex flex-col sm:flex-row items-stretch sm:items-center space-y-3 sm:space-y-0 sm:space-x-3 pt-2">
           <button
             type="submit"
-            className="flex-1 min-h-[64px] px-6 rounded-2xl bg-[var(--accent)] hover:brightness-110 active:scale-95 text-[var(--accent-fg)] font-black text-lg flex items-center justify-center gap-2.5 shadow-lg transition-all"
+            className="flex-1 min-h-[64px] px-6 rounded-2xl bg-[var(--accent)] hover:brightness-110 active:scale-95 text-[var(--accent-fg)] font-black text-lg flex items-center justify-center space-x-2.5 shadow-lg transition-all"
           >
             <Check size={24} strokeWidth={3} />
-            Cadastrar e Abrir Painel
+            <span>Cadastrar e Abrir Painel</span>
           </button>
 
           <button
             type="button"
             onClick={onUseSampleData}
-            className="cockpit-btn-secondary min-h-[64px] px-5 rounded-2xl font-black text-base flex items-center justify-center gap-2 active:scale-95 transition-all"
+            className="cockpit-btn-secondary min-h-[64px] px-5 rounded-2xl font-black text-base flex items-center justify-center space-x-2 active:scale-95 transition-all"
           >
             <Sparkles size={20} className="text-[var(--accent-text)]" />
-            Usar Carro de Exemplo
+            <span>Usar Carro de Exemplo</span>
           </button>
 
           <button
             type="button"
             onClick={() => fileInputRef.current?.click()}
-            className="cockpit-btn-secondary min-h-[64px] px-5 rounded-2xl font-black text-base flex items-center justify-center gap-2 active:scale-95 transition-all"
+            className="cockpit-btn-secondary min-h-[64px] px-5 rounded-2xl font-black text-base flex items-center justify-center space-x-2 active:scale-95 transition-all"
           >
             <Upload size={20} />
-            Restaurar Backup
+            <span>Restaurar Backup</span>
           </button>
           <input
             ref={fileInputRef}

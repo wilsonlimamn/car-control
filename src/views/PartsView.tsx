@@ -68,30 +68,30 @@ export const PartsView: React.FC<PartsViewProps> = ({
   };
 
   return (
-    <div className="flex flex-col gap-6 w-full max-w-5xl mx-auto pb-16 animate-in fade-in duration-200">
+    <div className="flex flex-col space-y-6 w-full max-w-5xl mx-auto pb-16 animate-in fade-in duration-200">
       {/* Top Header and Add Button */}
-      <div className="flex flex-col gap-4">
-        <div className="flex flex-wrap items-center justify-between gap-4">
+      <div className="flex flex-col space-y-4">
+        <div className="flex flex-wrap items-center justify-between cockpit-wrap-4">
           <div>
             <h2 className="text-3xl sm:text-4xl font-black cockpit-text-primary tracking-tight uppercase">
               Peças & Manutenção
             </h2>
           </div>
 
-          <div className="flex items-center gap-3">
+          <div className="flex items-center space-x-3">
             <button
               type="button"
               onClick={onOpenNewPart}
-              className="min-h-[60px] px-7 rounded-2xl bg-[var(--accent)] hover:brightness-110 active:scale-95 text-[var(--accent-fg)] font-black text-lg shadow-[0_0_24px_rgba(var(--accent-rgb),0.4)] flex items-center justify-center gap-2.5 transition-all"
+              className="min-h-[60px] px-7 rounded-2xl bg-[var(--accent)] hover:brightness-110 active:scale-95 text-[var(--accent-fg)] font-black text-lg shadow-[0_0_24px_rgba(var(--accent-rgb),0.4)] flex items-center justify-center space-x-2.5 transition-all"
             >
               <Plus size={24} strokeWidth={3} />
-              + Nova Peça
+              <span>+ Nova Peça</span>
             </button>
           </div>
         </div>
 
         {/* Filtros em botões grandes */}
-        <div className="flex flex-wrap gap-3 pt-1">
+        <div className="flex flex-wrap cockpit-wrap-3 pt-1">
           {filterOptions.map((f) => {
             const isSelected = selectedFilter === f.id;
             return (
@@ -99,14 +99,14 @@ export const PartsView: React.FC<PartsViewProps> = ({
                 key={f.id}
                 type="button"
                 onClick={() => setSelectedFilter(f.id)}
-                className={`min-h-[58px] px-6 sm:px-7 rounded-2xl font-black text-lg transition-all active:scale-95 flex items-center justify-center gap-2 border-2 ${
+                className={`min-h-[58px] px-6 sm:px-7 rounded-2xl font-black text-lg transition-all active:scale-95 flex items-center justify-center space-x-2 border-2 ${
                   isSelected
                     ? 'bg-[var(--accent)] text-[var(--accent-fg)] border-[var(--accent-border)] shadow-[0_0_24px_rgba(var(--accent-rgb),0.4)]'
                     : 'cockpit-btn-secondary'
                 }`}
               >
                 {f.id === 'todas' && <Filter size={20} />}
-                {f.label}
+                <span>{f.label}</span>
               </button>
             );
           })}
@@ -114,7 +114,7 @@ export const PartsView: React.FC<PartsViewProps> = ({
       </div>
 
       {/* Lista de cards */}
-      <div className="flex flex-col gap-5">
+      <div className="flex flex-col space-y-5">
         {filteredParts.length === 0 ? (
           <div className="cockpit-card rounded-3xl p-12 text-center cockpit-text-muted text-xl font-bold">
             Nenhuma peça cadastrada nesta categoria.
@@ -127,12 +127,12 @@ export const PartsView: React.FC<PartsViewProps> = ({
             return (
               <div
                 key={part.id}
-                className="cockpit-card rounded-3xl p-6 sm:p-7 flex flex-col md:flex-row md:items-center justify-between gap-6 transition-all"
+                className="cockpit-card rounded-3xl p-6 sm:p-7 flex flex-col md:flex-row md:items-center justify-between space-y-6 md:space-y-0 md:space-x-6 transition-all"
               >
                 {/* Bloco de Informações da Peça */}
-                <div className="flex-1 flex flex-col gap-4">
-                  <div className="flex flex-wrap items-center justify-between gap-3">
-                    <div className="flex items-center gap-3">
+                <div className="flex-1 flex flex-col space-y-4">
+                  <div className="flex flex-wrap items-center justify-between cockpit-wrap-3">
+                    <div className="flex items-center space-x-3">
                       <h3 className="text-2xl sm:text-3xl font-black cockpit-text-primary tracking-tight">
                         {part.name}
                       </h3>
@@ -142,15 +142,15 @@ export const PartsView: React.FC<PartsViewProps> = ({
                     </div>
 
                     <div
-                      className={`h-11 px-4 rounded-xl border-2 flex items-center gap-2 font-black text-sm uppercase tracking-wider ${badge.bg} ${badge.text} ${badge.border}`}
+                      className={`h-11 px-4 rounded-xl border-2 flex items-center space-x-2 font-black text-sm uppercase tracking-wider ${badge.bg} ${badge.text} ${badge.border}`}
                     >
                       <div className={`w-2.5 h-2.5 rounded-full ${part.status === 'expired' ? 'bg-red-500 animate-pulse' : part.status === 'warning' ? 'bg-amber-500' : 'bg-emerald-500'}`} />
-                      {badge.label}
+                      <span>{badge.label}</span>
                     </div>
                   </div>
 
                   {/* Barra de Desgaste */}
-                  <div className="flex flex-col gap-2">
+                  <div className="flex flex-col space-y-2">
                     <div className="flex justify-between items-baseline">
                       <span className="font-bold cockpit-text-secondary text-base">Desgaste Calculado</span>
                       <span className={`font-mono-numbers font-black text-2xl sm:text-3xl ${badge.text}`}>
@@ -167,46 +167,48 @@ export const PartsView: React.FC<PartsViewProps> = ({
                   </div>
 
                   {/* Prazo Restante */}
-                  <div className="flex flex-wrap items-center justify-between gap-3 pt-1">
-                    <div className="flex items-baseline gap-2">
+                  <div className="flex flex-wrap items-center justify-between cockpit-wrap-3 pt-1">
+                    <div className="flex items-baseline space-x-2">
                       <span className="text-base font-bold cockpit-text-muted">Prazo:</span>
                       <span className={`text-xl sm:text-2xl font-black ${badge.text}`}>
                         {part.shortDueText}
                       </span>
                     </div>
 
-                    <div className="text-sm font-semibold cockpit-text-muted flex items-center gap-4">
-                      <span className="flex items-center gap-1.5">
+                    <div className="text-sm font-semibold cockpit-text-muted flex items-center space-x-4">
+                      <span className="flex items-center space-x-1.5">
                         <Gauge size={16} />
-                        Última troca: <strong className="cockpit-text-primary font-mono-numbers">{formatNumber(part.last_change_km)} km</strong>
+                        <span>
+                          Última troca: <strong className="cockpit-text-primary font-mono-numbers">{formatNumber(part.last_change_km)} km</strong>
+                        </span>
                       </span>
                       <span>·</span>
-                      <span className="flex items-center gap-1.5">
+                      <span className="flex items-center space-x-1.5">
                         <Calendar size={16} />
-                        {formatDate(part.last_change_date)}
+                        <span>{formatDate(part.last_change_date)}</span>
                       </span>
                     </div>
                   </div>
                 </div>
 
                 {/* Botões Grandes de Ação */}
-                <div className="shrink-0 flex flex-col sm:flex-row items-stretch sm:items-center gap-3 md:pl-4">
+                <div className="shrink-0 flex flex-col sm:flex-row items-stretch sm:items-center space-y-3 sm:space-y-0 sm:space-x-3 md:pl-4">
                   <button
                     type="button"
                     onClick={() => onOpenConfigPart(part)}
-                    className="cockpit-btn-secondary min-h-[64px] px-6 rounded-2xl active:scale-95 font-black text-base sm:text-lg shadow-sm transition-all flex items-center justify-center gap-2.5"
+                    className="cockpit-btn-secondary min-h-[64px] px-6 rounded-2xl active:scale-95 font-black text-base sm:text-lg shadow-sm transition-all flex items-center justify-center space-x-2.5"
                   >
                     <SlidersHorizontal size={22} />
-                    Configurar
+                    <span>Configurar</span>
                   </button>
 
                   <button
                     type="button"
                     onClick={() => onRenewPart(part.id)}
-                    className="cockpit-btn-secondary min-h-[64px] px-7 rounded-2xl active:bg-[var(--accent)] active:text-[var(--accent-fg)] font-black text-base sm:text-lg shadow-sm transition-all flex items-center justify-center gap-2.5"
+                    className="cockpit-btn-secondary min-h-[64px] px-7 rounded-2xl active:bg-[var(--accent)] active:text-[var(--accent-fg)] font-black text-base sm:text-lg shadow-sm transition-all flex items-center justify-center space-x-2.5"
                   >
                     <Check size={24} strokeWidth={3} />
-                    Troquei agora
+                    <span>Troquei agora</span>
                   </button>
                 </div>
               </div>

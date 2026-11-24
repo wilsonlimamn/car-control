@@ -1,8 +1,21 @@
-@import "tailwindcss";
-
-@custom-variant dark (&:where(.dark, .dark *));
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
 
 @layer base {
+  /* Fallbacks para seletores :where() do Tailwind Preflight em WebViews Chrome < 88 */
+  [hidden] {
+    display: none;
+  }
+
+  input[type='button'],
+  input[type='reset'],
+  input[type='submit'] {
+    -webkit-appearance: button;
+    background-color: transparent;
+    background-image: none;
+  }
+
   :root {
     --font-sans: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
     --font-mono: 'JetBrains Mono', monospace;
@@ -233,6 +246,122 @@
   font-variant-numeric: tabular-nums;
 }
 
+/* Chrome 50 safe helpers replacing dvh / flex-gap */
+.cockpit-screen-min-h {
+  min-height: 100vh;
+  min-height: 100dvh;
+}
+
+.cockpit-wrap-2 {
+  margin: -4px;
+}
+.cockpit-wrap-2 > * {
+  margin: 4px;
+}
+
+.cockpit-wrap-2\.5 {
+  margin: -5px;
+}
+.cockpit-wrap-2\.5 > * {
+  margin: 5px;
+}
+
+.cockpit-wrap-3 {
+  margin: -6px;
+}
+.cockpit-wrap-3 > * {
+  margin: 6px;
+}
+
+.cockpit-wrap-4 {
+  margin: -8px;
+}
+.cockpit-wrap-4 > * {
+  margin: 8px;
+}
+
+.cockpit-grid-4 {
+  display: flex;
+  flex-direction: row;
+  align-items: stretch;
+}
+.cockpit-grid-4 > * {
+  flex: 1 1 0%;
+  min-width: 0;
+}
+.cockpit-grid-4 > * + * {
+  margin-left: 8px;
+}
+@supports (display: grid) {
+  .cockpit-grid-4 {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    grid-gap: 8px;
+    gap: 8px;
+  }
+  .cockpit-grid-4 > * + * {
+    margin-left: 0;
+  }
+}
+
+.cockpit-numpad-grid {
+  display: flex;
+  flex-wrap: wrap;
+  margin: -4px;
+}
+.cockpit-numpad-grid > * {
+  width: calc(33.333% - 8px);
+  margin: 4px;
+}
+@supports (display: grid) {
+  .cockpit-numpad-grid {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    grid-gap: 8px;
+    gap: 8px;
+    margin: 0;
+  }
+  .cockpit-numpad-grid > * {
+    width: auto;
+    margin: 0;
+  }
+}
+
+.cockpit-2col-grid {
+  display: flex;
+  flex-wrap: wrap;
+  margin: -5px;
+}
+.cockpit-2col-grid > * {
+  width: calc(50% - 10px);
+  margin: 5px;
+}
+@supports (display: grid) {
+  .cockpit-2col-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-gap: 10px;
+    gap: 10px;
+    margin: 0;
+  }
+  .cockpit-2col-grid > * {
+    width: auto;
+    margin: 0;
+  }
+}
+
+@supports not (display: grid) {
+  .grid {
+    display: flex;
+    flex-wrap: wrap;
+    margin: -8px;
+  }
+  .grid > * {
+    flex: 1 1 240px;
+    margin: 8px;
+  }
+}
+
 /* ============================================================ */
 /* SUPERFÍCIES SEMÂNTICAS (Adaptam-se a Claro / Cinza / Escuro) */
 /* ============================================================ */
@@ -383,6 +512,246 @@
 }
 
 /* ============================================================ */
+/* FLUID HOME / MODAL SIZES WITH CHROME 50 STATIC FALLBACKS     */
+/* ============================================================ */
+.cockpit-alert-strip-pad {
+  padding: 10px 14px;
+  padding-left: 14px;
+  padding-right: 14px;
+  padding-top: 10px;
+  padding-bottom: 10px;
+  padding-left: clamp(12px, 1.8vw, 20px);
+  padding-right: clamp(12px, 1.8vw, 20px);
+  padding-top: clamp(8px, 1.3vh, 12px);
+  padding-bottom: clamp(8px, 1.3vh, 12px);
+  padding-top: clamp(8px, 1.3dvh, 12px);
+  padding-bottom: clamp(8px, 1.3dvh, 12px);
+}
+
+.cockpit-alert-icon-box {
+  width: 48px;
+  height: 48px;
+  width: clamp(44px, 7.5vh, 56px);
+  height: clamp(44px, 7.5vh, 56px);
+  width: clamp(44px, 7.5dvh, 56px);
+  height: clamp(44px, 7.5dvh, 56px);
+}
+
+.cockpit-alert-title-lg {
+  font-size: 22px;
+  font-size: clamp(20px, 3.6vh, 28px);
+  font-size: clamp(20px, 3.6dvh, 28px);
+}
+
+.cockpit-alert-title-md {
+  font-size: 19px;
+  font-size: clamp(17px, 2.8vh, 22px);
+  font-size: clamp(17px, 2.8dvh, 22px);
+}
+
+.cockpit-alert-title-sm {
+  font-size: 18px;
+  font-size: clamp(16px, 2.7vh, 22px);
+  font-size: clamp(16px, 2.7dvh, 22px);
+}
+
+.cockpit-alert-num-badge {
+  width: 50px;
+  height: 50px;
+  font-size: 26px;
+  width: clamp(46px, 8vh, 56px);
+  height: clamp(46px, 8vh, 56px);
+  font-size: clamp(24px, 4vh, 32px);
+  width: clamp(46px, 8dvh, 56px);
+  height: clamp(46px, 8dvh, 56px);
+  font-size: clamp(24px, 4dvh, 32px);
+}
+
+.cockpit-alert-btn {
+  height: 52px;
+  height: clamp(48px, 9vh, 58px);
+  height: clamp(48px, 9dvh, 58px);
+}
+
+.cockpit-alert-btn-tall {
+  height: 54px;
+  height: clamp(50px, 9.8vh, 64px);
+  height: clamp(50px, 9.8dvh, 64px);
+}
+
+.cockpit-alert-btn-compact {
+  height: 44px;
+  height: clamp(40px, 7.4vh, 52px);
+  height: clamp(40px, 7.4dvh, 52px);
+}
+
+.cockpit-alert-btn-item {
+  height: 52px;
+  height: clamp(48px, 9.5vh, 64px);
+  height: clamp(48px, 9.5dvh, 64px);
+}
+
+.cockpit-home-card-pad {
+  padding: 14px;
+  padding: clamp(10px, 1.9vh, 20px);
+  padding: clamp(10px, 1.9dvh, 20px);
+}
+
+.cockpit-home-card-sm-pad {
+  padding: 12px;
+  padding: clamp(8px, 1.6vh, 18px);
+  padding: clamp(8px, 1.6dvh, 18px);
+}
+
+.cockpit-home-rings-pad {
+  padding: 10px;
+  padding: clamp(8px, 1.4vh, 14px);
+  padding: clamp(8px, 1.4dvh, 14px);
+}
+
+.cockpit-home-ring-item-pad {
+  padding: 8px;
+  padding: clamp(6px, 1vh, 10px);
+  padding: clamp(6px, 1dvh, 10px);
+}
+
+.cockpit-home-fuel-icon {
+  width: 40px;
+  height: 40px;
+  width: clamp(36px, 6.2vh, 46px);
+  height: clamp(36px, 6.2vh, 46px);
+  width: clamp(36px, 6.2dvh, 46px);
+  height: clamp(36px, 6.2dvh, 46px);
+}
+
+.cockpit-home-heading {
+  font-size: 20px;
+  font-size: clamp(18px, 3vh, 24px);
+  font-size: clamp(18px, 3dvh, 24px);
+}
+
+.cockpit-home-avg-val {
+  font-size: 18px;
+  font-size: clamp(16px, 2.8vh, 22px);
+  font-size: clamp(16px, 2.8dvh, 22px);
+}
+
+.cockpit-hud-ring-box {
+  width: 196px;
+  height: 196px;
+  max-width: 100%;
+  max-height: 220px;
+}
+
+@supports (aspect-ratio: 1 / 1) {
+  .cockpit-hud-ring-box {
+    width: auto;
+    height: 100%;
+    max-height: clamp(132px, 35vh, 268px);
+    max-height: clamp(132px, 35dvh, 268px);
+    aspect-ratio: 1 / 1;
+  }
+}
+
+.cockpit-hud-range-num {
+  font-size: 46px;
+  font-size: clamp(2rem, 7.8vh, 4.5rem);
+  font-size: clamp(2rem, 7.8dvh, 4.5rem);
+}
+
+.cockpit-hud-range-label {
+  font-size: 15px;
+  font-size: clamp(14px, 2.2vh, 18px);
+  font-size: clamp(14px, 2.2dvh, 18px);
+}
+
+.cockpit-home-cta-btn {
+  height: 56px;
+  font-size: 18px;
+  height: clamp(50px, 10.5vh, 64px);
+  font-size: clamp(16px, 2.8vh, 20px);
+  height: clamp(50px, 10.5dvh, 64px);
+  font-size: clamp(16px, 2.8dvh, 20px);
+}
+
+.cockpit-odo-num {
+  font-size: 48px;
+  font-size: clamp(2rem, 6.3vw, 5.25rem);
+  font-size: clamp(2rem, min(13vh, 6.3vw), 5.25rem);
+  font-size: clamp(2rem, min(13dvh, 6.3vw), 5.25rem);
+}
+
+.cockpit-mini-ring-box {
+  width: 96px;
+  height: 96px;
+  max-height: calc(100% - 40px);
+}
+
+@supports (aspect-ratio: 1 / 1) {
+  .cockpit-mini-ring-box {
+    width: auto;
+    height: clamp(68px, 21vh, 132px);
+    height: clamp(68px, 21dvh, 132px);
+    aspect-ratio: 1 / 1;
+  }
+}
+
+.cockpit-mini-ring-num {
+  font-size: 22px;
+  font-size: clamp(18px, 4vh, 30px);
+  font-size: clamp(18px, 4dvh, 30px);
+}
+
+/* Numeric Modal responsive helpers with Chrome 50 fallback */
+.cockpit-num-modal-card {
+  padding: 16px;
+  padding: clamp(12px, 2vh, 20px);
+  padding: clamp(12px, 2dvh, 20px);
+}
+
+.cockpit-num-title {
+  font-size: 20px;
+  font-size: clamp(18px, 3.2vh, 24px);
+  font-size: clamp(18px, 3.2dvh, 24px);
+}
+
+.cockpit-num-display {
+  padding-top: 12px;
+  padding-bottom: 12px;
+  padding-top: clamp(10px, 2vh, 18px);
+  padding-bottom: clamp(10px, 2vh, 18px);
+  padding-top: clamp(10px, 2dvh, 18px);
+  padding-bottom: clamp(10px, 2dvh, 18px);
+}
+
+.cockpit-num-display-val {
+  font-size: 44px;
+  font-size: clamp(2.25rem, 7.5vh, 3.75rem);
+  font-size: clamp(2.25rem, 7.5dvh, 3.75rem);
+}
+
+.cockpit-num-display-unit {
+  font-size: 18px;
+  font-size: clamp(16px, 3vh, 22px);
+  font-size: clamp(16px, 3dvh, 22px);
+}
+
+.cockpit-num-action-btn {
+  height: 58px;
+  height: clamp(54px, 11vh, 64px);
+  height: clamp(54px, 11dvh, 64px);
+}
+
+.cockpit-num-key-btn {
+  height: 60px;
+  font-size: 26px;
+  height: clamp(56px, 13vh, 68px);
+  font-size: clamp(24px, 4.5vh, 30px);
+  height: clamp(56px, 13dvh, 68px);
+  font-size: clamp(24px, 4.5dvh, 30px);
+}
+
+/* ============================================================ */
 /* HEAD UNIT LANDSCAPE vs PORTRAIT PHONE LAYOUT                 */
 /* ============================================================ */
 .cockpit-sidebar {
@@ -392,55 +761,127 @@
 .cockpit-bottom-nav {
   display: block;
   padding-top: 8px;
+  padding-bottom: 8px;
   padding-bottom: calc(8px + env(safe-area-inset-bottom, 0px));
+  padding-left: 8px;
   padding-left: calc(8px + env(safe-area-inset-left, 0px));
+  padding-right: 8px;
   padding-right: calc(8px + env(safe-area-inset-right, 0px));
 }
 
 .cockpit-main {
   min-height: 100vh;
   min-height: 100dvh;
+  padding-top: 12px;
   padding-top: calc(12px + env(safe-area-inset-top, 0px));
+  padding-right: 12px;
   padding-right: calc(12px + env(safe-area-inset-right, 0px));
+  padding-left: 12px;
   padding-left: calc(12px + env(safe-area-inset-left, 0px));
+  padding-bottom: 96px;
   padding-bottom: calc(96px + env(safe-area-inset-bottom, 0px));
 }
 
 .cockpit-home-root {
   display: flex;
   flex-direction: column;
-  gap: 12px;
   width: 100%;
 }
+.cockpit-home-root > * + * {
+  margin-top: 12px;
+}
 
+/* Chrome 50-56 flex fallback for primary 2-col cockpit, enhanced to Grid on Chrome 57+ */
 .cockpit-home-cols {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr);
-  gap: 12px;
+  display: flex;
+  flex-direction: column;
   width: 100%;
+}
+.cockpit-home-cols > * + * {
+  margin-top: 12px;
+}
+
+@supports (display: grid) {
+  .cockpit-home-cols {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    grid-gap: 12px;
+    gap: 12px;
+  }
+  .cockpit-home-cols > * + * {
+    margin-top: 0;
+  }
 }
 
 .cockpit-alerts-grid {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr);
-  gap: 8px;
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+}
+.cockpit-alerts-grid > * + * {
+  margin-top: 8px;
+}
+
+@supports (display: grid) {
+  .cockpit-alerts-grid {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    grid-gap: 8px;
+    gap: 8px;
+  }
+  .cockpit-alerts-grid > * + * {
+    margin-top: 0;
+  }
+}
+
+.cockpit-home-rings-card {
+  display: flex;
+  flex-direction: row;
+  min-height: 0;
+}
+.cockpit-home-rings-card > * {
+  flex: 1 1 0%;
+  min-width: 0;
+}
+.cockpit-home-rings-card > * + * {
+  margin-left: 10px;
+}
+
+@supports (display: grid) {
+  .cockpit-home-rings-card {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-gap: 10px;
+    gap: 10px;
+    grid-gap: clamp(8px, 1.2vw, 12px);
+    gap: clamp(8px, 1.2vw, 12px);
+  }
+  .cockpit-home-rings-card > * + * {
+    margin-left: 0;
+  }
 }
 
 .cockpit-numeric-card {
   display: flex;
   flex-direction: column;
-  gap: 12px;
   width: 100%;
   max-width: 440px;
+}
+.cockpit-numeric-card > * + * {
+  margin-top: 12px;
 }
 
 @media (orientation: landscape) {
   .cockpit-sidebar {
     display: flex;
+    width: 128px;
     width: calc(128px + env(safe-area-inset-left, 0px));
+    padding-left: 6px;
     padding-left: calc(6px + env(safe-area-inset-left, 0px));
     padding-right: 6px;
+    padding-top: 8px;
     padding-top: calc(8px + env(safe-area-inset-top, 0px));
+    padding-bottom: 8px;
     padding-bottom: calc(8px + env(safe-area-inset-bottom, 0px));
   }
 
@@ -451,9 +892,15 @@
   .cockpit-main {
     min-height: 100vh;
     min-height: 100dvh;
+    padding-left: 140px;
     padding-left: calc(128px + clamp(8px, 1.2vw, 14px) + env(safe-area-inset-left, 0px));
+    padding-right: 12px;
     padding-right: calc(clamp(8px, 1.2vw, 14px) + env(safe-area-inset-right, 0px));
+    padding-top: 10px;
+    padding-top: calc(clamp(6px, 1.2vh, 12px) + env(safe-area-inset-top, 0px));
     padding-top: calc(clamp(6px, 1.2dvh, 12px) + env(safe-area-inset-top, 0px));
+    padding-bottom: 10px;
+    padding-bottom: calc(clamp(6px, 1.2vh, 12px) + env(safe-area-inset-bottom, 0px));
     padding-bottom: calc(clamp(6px, 1.2dvh, 12px) + env(safe-area-inset-bottom, 0px));
   }
 
@@ -469,23 +916,71 @@
     height: 100%;
     min-height: 0;
     overflow: hidden;
-    gap: clamp(8px, 1.3dvh, 12px);
   }
 
   .cockpit-home-cols {
     flex: 1 1 0%;
     min-height: 0;
-    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-    gap: clamp(8px, 1.3dvh, 12px);
+    flex-direction: row;
     align-items: stretch;
   }
-
-  .cockpit-alerts-grid-2 {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+  .cockpit-home-cols > * {
+    flex: 1 1 0%;
+    min-width: 0;
+  }
+  .cockpit-home-cols > * + * {
+    margin-top: 0;
+    margin-left: 10px;
   }
 
-  .cockpit-alerts-grid-3 {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
+  .cockpit-alerts-grid {
+    flex-direction: row;
+  }
+  .cockpit-alerts-grid > * {
+    flex: 1 1 0%;
+    min-width: 0;
+  }
+  .cockpit-alerts-grid > * + * {
+    margin-top: 0;
+    margin-left: 8px;
+  }
+
+  @supports (display: grid) {
+    .cockpit-home-root > * + * {
+      margin-top: 10px;
+      margin-top: clamp(8px, 1.3vh, 12px);
+      margin-top: clamp(8px, 1.3dvh, 12px);
+    }
+
+    .cockpit-home-cols {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+      grid-gap: 10px;
+      gap: 10px;
+      grid-gap: clamp(8px, 1.3vh, 12px);
+      gap: clamp(8px, 1.3vh, 12px);
+      grid-gap: clamp(8px, 1.3dvh, 12px);
+      gap: clamp(8px, 1.3dvh, 12px);
+      align-items: stretch;
+    }
+    .cockpit-home-cols > * + * {
+      margin-left: 0;
+    }
+
+    .cockpit-alerts-grid {
+      display: grid;
+    }
+    .cockpit-alerts-grid > * + * {
+      margin-left: 0;
+    }
+
+    .cockpit-alerts-grid-2 {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .cockpit-alerts-grid-3 {
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
   }
 
   .cockpit-right-top {
@@ -500,8 +995,10 @@
 
   /* Squarer horizontal panels (e.g. 164.5x100mm or 1280x800): slightly taller right column */
   @media (max-aspect-ratio: 17/10) {
-    .cockpit-home-cols {
-      grid-template-columns: minmax(0, 0.96fr) minmax(0, 1.04fr);
+    @supports (display: grid) {
+      .cockpit-home-cols {
+        grid-template-columns: minmax(0, 0.96fr) minmax(0, 1.04fr);
+      }
     }
 
     .cockpit-right-top {
@@ -514,12 +1011,35 @@
   }
 
   .cockpit-numeric-card {
-    display: grid;
-    grid-template-columns: minmax(0, 1.05fr) minmax(0, 1fr);
-    gap: clamp(10px, 1.8vw, 18px);
+    flex-direction: row;
+    max-width: 720px;
     max-width: min(760px, calc(100vw - 24px - env(safe-area-inset-left, 0px) - env(safe-area-inset-right, 0px)));
+    max-height: calc(100vh - 16px);
     max-height: calc(100dvh - 16px - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px));
     align-items: stretch;
+  }
+  .cockpit-numeric-card > * {
+    flex: 1 1 0%;
+    min-width: 0;
+  }
+  .cockpit-numeric-card > * + * {
+    margin-top: 0;
+    margin-left: 14px;
+  }
+
+  @supports (display: grid) {
+    .cockpit-numeric-card {
+      display: grid;
+      grid-template-columns: minmax(0, 1.05fr) minmax(0, 1fr);
+      grid-gap: 14px;
+      gap: 14px;
+      grid-gap: clamp(10px, 1.8vw, 18px);
+      gap: clamp(10px, 1.8vw, 18px);
+      align-items: stretch;
+    }
+    .cockpit-numeric-card > * + * {
+      margin-left: 0;
+    }
   }
 }
 
@@ -531,4 +1051,21 @@
     transition-duration: 0.01ms !important;
     scroll-behavior: auto !important;
   }
+}
+
+/* Low-memory / legacy WebView performance mode (deviceMemory <= 1 or slow boot) */
+.low-perf *,
+.low-perf *::before,
+.low-perf *::after {
+  animation: none !important;
+  transition: none !important;
+  box-shadow: none !important;
+  text-shadow: none !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+
+.low-perf [data-bg-style="gradient"] {
+  background-image: none !important;
+  background-color: #0b1120 !important;
 }
