@@ -7,13 +7,13 @@ Este guia mostra como validar o **Car Control** em ambiente próximo ao da centr
 ## 1. Validação automática local (antes de gerar o APK)
 
 ```bash
-npm run build
-npm run check:compat
+bun run build
+bun run check:compat
 ```
 
-O comando `npm run check:compat` verifica:
+O comando `bun run check:compat` verifica:
 - Chunks **legacy** (`dist/assets/*-legacy-*.js` e polyfills) contra o alvo configurado em `build-target.json` (`chrome >= 50, android >= 5`).
-- Fallback `dist/sql-asm.js` (no build Web/PWA) contra `chrome >= 50, android >= 5`.
+- Fallback `dist/sql-asm.js` contra `chrome >= 50, android >= 5`.
 - Chunks modernos ESM contra o alvo moderno (`chrome >= 87`).
 - CSS compilado (`dist/assets/*.css`) sem `oklch()`, `color-mix()`, `@property`, `@layer`, `inset`, `backdrop-filter` indesejado ou recursos modernos (`dvh`, `aspect-ratio`, `clamp()`/`min()`/`max()`) sem fallback anterior.
 
@@ -26,7 +26,9 @@ O comando `npm run check:compat` verifica:
 3. Em **Show Advanced Settings**, limite **RAM** para `1024 MB` para simular a central de 1 GB.
 4. No terminal do projeto:
    ```bash
-   npm install
+   bun install
+   bun run build:cap
+   bun run check:compat
    npm run cap:sync
    npx cap open android
    ```

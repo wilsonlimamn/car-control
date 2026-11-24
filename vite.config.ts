@@ -11,7 +11,7 @@ const pkg = JSON.parse(fs.readFileSync(path.resolve(rootDir, 'package.json'), 'u
 const buildTarget = JSON.parse(fs.readFileSync(path.resolve(rootDir, 'build-target.json'), 'utf8'));
 const isCapacitorBuild = process.env.CAPACITOR_BUILD === 'true';
 
-const legacyTargets = String(buildTarget.legacyBrowsers || 'chrome >= 50, android >= 5')
+const legacyTargets = String(buildTarget.legacyBrowsers)
   .split(',')
   .map((s) => s.trim())
   .filter(Boolean);
@@ -54,7 +54,7 @@ export default defineConfig(() => {
   return {
     define: {
       'import.meta.env.VITE_APP_VERSION': JSON.stringify(pkg.version || '1.0.0'),
-      'import.meta.env.VITE_MIN_CHROMIUM': JSON.stringify(String(buildTarget.minTestedChromium || 50)),
+      'import.meta.env.VITE_MIN_CHROMIUM': JSON.stringify(String(buildTarget.minTestedChromium)),
       'import.meta.env.VITE_GITHUB_REPO': JSON.stringify(process.env.VITE_GITHUB_REPO || 'wilsonlimamn/car-control'),
     },
     plugins: [
@@ -77,7 +77,6 @@ export default defineConfig(() => {
           'pwa-512x512.png',
           'pwa-maskable-512x512.png',
           'sql-wasm.wasm',
-          'sql-asm.js',
         ],
         manifest: {
           id: '/',
@@ -116,8 +115,23 @@ export default defineConfig(() => {
           cacheId: `car-control-v${pkg.version || '1.0.0'}`,
           cleanupOutdatedCaches: true,
           globPatterns: ['**/*.{js,css,html,ico,png,svg,wasm,woff,woff2}'],
+          globIgnores: ['**/sql-asm*.js'],
           maximumFileSizeToCacheInBytes: 5 * 1024 * 1024,
           runtimeCaching: [
+            {
+              urlPattern: /\/sql-asm\.js(?:\?.*)?$/i,
+              handler: 'CacheFirst',
+              options: {
+                cacheName: 'sql-asm-fallback-cache',
+                expiration: {
+                  maxEntries: 2,
+                  maxAgeSeconds: 60 * 60 * 24 * 365,
+                },
+                cacheableResponse: {
+                  statuses: [0, 200],
+                },
+              },
+            },
             {
               urlPattern: /^https:\/\/fonts\.googleapis\.com\/.*/i,
               handler: 'CacheFirst',
@@ -161,8 +175,8 @@ export default defineConfig(() => {
       },
     },
     build: {
-      target: buildTarget.esTarget || 'es2015',
-      cssTarget: buildTarget.cssTarget || 'chrome50',
+      target: buildTarget.esTarget,
+      cssTarget: buildTarget.cssTarget,
       cssMinify: 'esbuild' as const,
       modulePreload: false,
     },

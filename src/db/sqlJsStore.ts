@@ -21,7 +21,9 @@ import {
 import { DataStore, PersistenceStatus, StorageBackendType } from './types';
 
 function resolveAssetPath(fileName: string): string {
-  return `/${fileName.replace(/^\/+/, '')}`;
+  const baseUrl = import.meta.env.BASE_URL || '/';
+  const normalizedBase = baseUrl.endsWith('/') ? baseUrl : `${baseUrl}/`;
+  return `${normalizedBase}${fileName.replace(/^\/+/, '')}`;
 }
 
 export class SqlJsStore implements DataStore {
