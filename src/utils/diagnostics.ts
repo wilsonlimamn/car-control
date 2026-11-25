@@ -1,4 +1,5 @@
 export type LowPerfPreference = 'auto' | 'on' | 'off';
+export type SqlEngineChoice = 'wasm' | 'asmjs';
 
 export interface LowPerfCacheEntry {
   lowPerf: boolean;
@@ -16,7 +17,7 @@ export interface BootStep {
 
 export interface PersistedBootEvent {
   sessionId: string;
-  type: 'step' | 'error' | 'done';
+  type: 'step' | 'warn' | 'error' | 'done';
   label: string;
   tsIso: string;
   elapsedMs: number;
@@ -37,6 +38,8 @@ export interface BootDiagGlobal {
   lastTime: number;
   done: boolean;
   reactMounted?: boolean;
+  asmMode?: boolean;
+  fatalError?: string | null;
   currentLabel?: string;
   previousBootFailed?: boolean;
   previousBootState?: PersistedBootState | null;
@@ -45,14 +48,24 @@ export interface BootDiagGlobal {
   errors: string[];
   listeners?: Array<(label: string) => void>;
   recordStep: (label: string) => void;
+  recordWarning?: (msg: string) => void;
   recordError: (msg: string) => void;
+  setAsmMode?: (enabled: boolean) => void;
+  setFatalError?: (msg: string) => void;
+  hideSplash?: () => void;
+  resetSplash?: (label?: string) => void;
   markDone?: () => void;
 }
 
 const LS_EVENTS_KEY = 'car_control_boot_events_v1';
 const LS_LOW_PERF_PREF_KEY = 'car_control_low_perf_pref_v1';
 const LS_LOW_PERF_AUTO_KEY = 'car_control_low_perf_auto_v1';
+const LS_SQL_ENGINE_KEY = 'car_control_sql_engine_v1';
 const LOW_PERF_RECHECK_INTERVAL_MS = 7 * 24 * 60 * 60 * 1000;
+
+// Smallest valid WebAssembly module header (magic + version 1)
+const MINIMAL_WASM_BYTES = new Uint8Array([0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00]);
+let wasmSupportMemo: boolean | null = null;
 
 function getDiag(): BootDiagGlobal | null {
   if (typeof window === 'undefined') return null;
@@ -83,10 +96,57 @@ export function recordBootStep(label: string): void {
   }
 }
 
+export function recordBootWarning(msg: string): void {
+  const diag = getDiag();
+  if (diag && typeof diag.recordWarning === 'function') {
+    diag.recordWarning(msg);
+  } else if (diag && typeof diag.recordError === 'function') {
+    diag.recordError(`[Aviso] ${msg}`);
+  }
+}
+
 export function recordBootError(msg: string): void {
   const diag = getDiag();
   if (diag && typeof diag.recordError === 'function') {
     diag.recordError(msg);
+  }
+}
+
+export function setBootAsmMode(enabled: boolean): void {
+  const diag = getDiag();
+  if (diag && typeof diag.setAsmMode === 'function') {
+    diag.setAsmMode(enabled);
+  }
+}
+
+export function setBootFatalError(msg: string): void {
+  const diag = getDiag();
+  if (diag && typeof diag.setFatalError === 'function') {
+    diag.setFatalError(msg);
+  } else {
+    recordBootError(msg);
+  }
+}
+
+export function hideBootSplash(): void {
+  const diag = getDiag();
+  if (diag && typeof diag.hideSplash === 'function') {
+    diag.hideSplash();
+    return;
+  }
+  if (typeof document !== 'undefined') {
+    const el = document.getElementById('app-boot-splash');
+    if (el) el.style.display = 'none';
+  }
+}
+
+export function resetBootSplash(label = 'Carregando…'): void {
+  const diag = getDiag();
+  if (diag && typeof diag.resetSplash === 'function') {
+    diag.resetSplash(label);
+  } else if (typeof document !== 'undefined') {
+    const el = document.getElementById('app-boot-splash');
+    if (el) el.style.display = 'flex';
   }
 }
 
@@ -104,6 +164,7 @@ export function markBootDone(): void {
       diag.markDone();
     } else {
       diag.done = true;
+      hideBootSplash();
     }
   }
 }
@@ -138,15 +199,68 @@ export function hasServiceWorkerSupport(): boolean {
   return typeof navigator !== 'undefined' && 'serviceWorker' in navigator;
 }
 
+export function getCachedSqlEngine(): SqlEngineChoice | null {
+  try {
+    const val = localStorage.getItem(LS_SQL_ENGINE_KEY);
+    if (val === 'wasm' || val === 'asmjs') {
+      return val;
+    }
+  } catch {
+    // Ignore
+  }
+  return null;
+}
+
+export function setCachedSqlEngine(engine: SqlEngineChoice): void {
+  try {
+    localStorage.setItem(LS_SQL_ENGINE_KEY, engine);
+  } catch {
+    // Ignore
+  }
+}
+
+export function resolvePublicAssetPath(fileName: string): string {
+  const baseUrl = import.meta.env.BASE_URL || '/';
+  const normalizedBase = baseUrl.endsWith('/') ? baseUrl : `${baseUrl}/`;
+  return `${normalizedBase}${fileName.replace(/^\/+/, '')}`;
+}
+
+export function prewarmAsmJsScript(): void {
+  if (typeof window === 'undefined' || typeof document === 'undefined') return;
+  const win = window as unknown as { initSqlJs?: unknown };
+  if (typeof win.initSqlJs === 'function') return;
+
+  const existing = document.querySelector('script[data-sql-asm="true"]') as HTMLScriptElement | null;
+  if (existing) return;
+
+  try {
+    const script = document.createElement('script');
+    script.src = resolvePublicAssetPath('sql-asm.js');
+    script.async = true;
+    script.setAttribute('data-sql-asm', 'true');
+    script.setAttribute('data-sql-asm-status', 'loading');
+    script.onload = () => {
+      script.setAttribute('data-sql-asm-status', 'loaded');
+    };
+    script.onerror = () => {
+      script.setAttribute('data-sql-asm-status', 'error');
+    };
+    document.head.appendChild(script);
+  } catch {
+    // Non-blocking best-effort prewarm
+  }
+}
+
 export function getPreviousCrashReportText(): string {
   const diag = getDiag();
   const prevState = diag?.previousBootState;
   const events = getPersistedBootEvents();
+  const cachedEngine = getCachedSqlEngine();
   const lines: string[] = [
     '=== RELATÓRIO DE INICIALIZAÇÃO - CAR CONTROL ===',
     `Navegador/WebView: ${getChromiumVersion()}`,
     `User-Agent: ${typeof navigator !== 'undefined' ? navigator.userAgent : 'N/A'}`,
-    `WebAssembly: ${hasWebAssemblySupport() ? 'Sim' : 'Não (asm.js)'}`,
+    `WebAssembly: ${hasWebAssemblySupport() ? 'Sim' : 'Não (asm.js)'}${cachedEngine ? ` (cache: ${cachedEngine})` : ''}`,
     `IndexedDB: ${hasIndexedDbSupport() ? 'Disponível' : 'Indisponível (fallback localStorage)'}`,
     `Service Worker: ${hasServiceWorkerSupport() ? 'Disponível' : 'Indisponível'}`,
     `Memória: ${getAvailableMemoryInfo()}`,
@@ -162,7 +276,14 @@ export function getPreviousCrashReportText(): string {
 
   lines.push('', `Eventos persistidos (últimos ${events.length}/100):`);
   for (const ev of events) {
-    const prefix = ev.type === 'error' ? '[ERRO]' : ev.type === 'done' ? '[OK]' : '[ETAPA]';
+    const prefix =
+      ev.type === 'error'
+        ? '[ERRO]'
+        : ev.type === 'warn'
+        ? '[AVISO]'
+        : ev.type === 'done'
+        ? '[OK]'
+        : '[ETAPA]';
     lines.push(`  ${ev.tsIso} ${prefix} ${ev.label} (${ev.elapsedMs}ms)`);
   }
 
@@ -228,10 +349,29 @@ export function getChromiumVersion(): string {
 }
 
 export function hasWebAssemblySupport(): boolean {
-  return (
-    typeof WebAssembly === 'object' &&
-    typeof WebAssembly.instantiate === 'function'
-  );
+  if (wasmSupportMemo !== null) {
+    return wasmSupportMemo;
+  }
+  try {
+    if (
+      typeof WebAssembly !== 'object' ||
+      typeof WebAssembly.instantiate !== 'function' ||
+      typeof WebAssembly.Module !== 'function'
+    ) {
+      wasmSupportMemo = false;
+      return false;
+    }
+    if (typeof WebAssembly.validate === 'function' && !WebAssembly.validate(MINIMAL_WASM_BYTES)) {
+      wasmSupportMemo = false;
+      return false;
+    }
+    const mod = new WebAssembly.Module(MINIMAL_WASM_BYTES);
+    wasmSupportMemo = mod instanceof WebAssembly.Module;
+    return wasmSupportMemo;
+  } catch {
+    wasmSupportMemo = false;
+    return false;
+  }
 }
 
 export function getAvailableMemoryInfo(): string {
@@ -384,7 +524,10 @@ export function detectAndApplyLowPerfMode(bootElapsedMs?: number, forceReeval = 
 export function getDiagnosticText(extraError?: string): string {
   const diag = getDiag();
   const ua = typeof navigator !== 'undefined' ? navigator.userAgent : 'N/A';
-  const wasm = hasWebAssemblySupport() ? 'Sim' : 'Não (usando fallback asm.js)';
+  const cachedEngine = getCachedSqlEngine();
+  const wasm = hasWebAssemblySupport()
+    ? 'Sim'
+    : 'Não (usando fallback asm.js)';
   const idb = hasIndexedDbSupport() ? 'Disponível' : 'Indisponível (fallback localStorage)';
   const sw = hasServiceWorkerSupport() ? 'Disponível' : 'Indisponível';
   const mem = getAvailableMemoryInfo();
@@ -399,7 +542,7 @@ export function getDiagnosticText(extraError?: string): string {
   const lines: string[] = [
     `Navegador/WebView: ${getChromiumVersion()}`,
     `User-Agent: ${ua}`,
-    `Suporte WebAssembly: ${wasm}`,
+    `Suporte WebAssembly: ${wasm}${cachedEngine ? ` (motor em cache: ${cachedEngine})` : ''}`,
     `IndexedDB: ${idb}`,
     `Service Worker: ${sw}`,
     `Memória: ${mem}`,
@@ -412,7 +555,7 @@ export function getDiagnosticText(extraError?: string): string {
   ];
 
   if (errors.length > 0) {
-    lines.push('', 'Erros capturados:');
+    lines.push('', 'Avisos e erros capturados:');
     errors.forEach((e) => lines.push(`  ! ${e}`));
   }
 

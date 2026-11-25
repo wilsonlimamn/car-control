@@ -5,14 +5,26 @@ import App from './App.tsx';
 import './index.css';
 import {
   detectAndApplyLowPerfMode,
+  getCachedSqlEngine,
   getDiagnosticText,
+  hasWebAssemblySupport,
+  hideBootSplash,
   markReactMounted,
+  prewarmAsmJsScript,
   recordBootError,
   recordBootStep,
+  setBootAsmMode,
+  setBootFatalError,
 } from './utils/diagnostics';
 
 recordBootStep('JS inicializado');
 detectAndApplyLowPerfMode();
+
+// Pre-warm sql-asm.js immediately without blocking React mount when asm.js is needed
+if (getCachedSqlEngine() === 'asmjs' || !hasWebAssemblySupport()) {
+  setBootAsmMode(true);
+  prewarmAsmJsScript();
+}
 
 // Service Worker only for Web/PWA; native Capacitor WebView serves bundled assets directly
 const isCapacitorNative = Boolean(
@@ -42,7 +54,13 @@ class AppErrorBoundary extends React.Component<{ children: React.ReactNode }, Er
   static getDerivedStateFromError(error: Error): Partial<ErrorBoundaryState> {
     const msg = error?.message || 'Erro inesperado ao renderizar o app';
     recordBootError(msg);
+    hideBootSplash();
     return { hasError: true, errorMsg: msg };
+  }
+
+  componentDidCatch(error: Error): void {
+    hideBootSplash();
+    recordBootError(error?.message || 'Falha fatal na interface React');
   }
 
   render() {
@@ -51,7 +69,7 @@ class AppErrorBoundary extends React.Component<{ children: React.ReactNode }, Er
         <div
           style={{
             minHeight: '100vh',
-            background: '#0b1120',
+            background: '#080c15',
             color: '#f8fafc',
             display: 'flex',
             flexDirection: 'column',
@@ -143,9 +161,14 @@ class AppErrorBoundary extends React.Component<{ children: React.ReactNode }, Er
 }
 
 recordBootStep('Montando casca React');
-markReactMounted();
-createRoot(document.getElementById('root')!).render(
-  <AppErrorBoundary>
-    <App />
-  </AppErrorBoundary>
-);
+try {
+  createRoot(document.getElementById('root')!).render(
+    <AppErrorBoundary>
+      <App />
+    </AppErrorBoundary>
+  );
+  markReactMounted();
+} catch (err) {
+  const msg = (err as Error)?.message || 'Falha ao montar interface React';
+  setBootFatalError(msg);
+}

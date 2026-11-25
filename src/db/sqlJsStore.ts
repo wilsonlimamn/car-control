@@ -1,6 +1,16 @@
 import type { Database, SqlJsStatic } from 'sql.js';
 import { AppSettings, CategoryType, MaintenanceRecord, Part, Vehicle } from '../types';
-import { hasWebAssemblySupport, recordBootError, recordBootStep } from '../utils/diagnostics';
+import {
+  getCachedSqlEngine,
+  hasWebAssemblySupport,
+  prewarmAsmJsScript,
+  recordBootError,
+  recordBootStep,
+  recordBootWarning,
+  resolvePublicAssetPath,
+  setBootAsmMode,
+  setCachedSqlEngine,
+} from '../utils/diagnostics';
 import {
   idbDelete,
   idbGet,
@@ -18,13 +28,7 @@ import {
   hasSqliteMagicHeader,
   normalizeSettingsMap,
 } from './schema';
-import { DataStore, PersistenceStatus, StorageBackendType } from './types';
-
-function resolveAssetPath(fileName: string): string {
-  const baseUrl = import.meta.env.BASE_URL || '/';
-  const normalizedBase = baseUrl.endsWith('/') ? baseUrl : `${baseUrl}/`;
-  return `${normalizedBase}${fileName.replace(/^\/+/, '')}`;
-}
+import { DataStore, PersistenceStatus } from './types';
 
 export class SqlJsStore implements DataStore {
   public readonly engineName = 'sql.js' as const;
@@ -189,7 +193,7 @@ export class SqlJsStore implements DataStore {
           settled = true;
           reject(new Error('Timeout ao carregar sql-asm.js'));
         }
-      }, 20000);
+      }, 60000);
 
       const finishOk = () => {
         if (settled) return;
@@ -223,19 +227,48 @@ export class SqlJsStore implements DataStore {
         reject(new Error(msg));
       };
 
-      const existing = document.querySelector('script[data-sql-asm="true"]') as HTMLScriptElement | null;
+      let existing = document.querySelector('script[data-sql-asm="true"]') as HTMLScriptElement | null;
       if (existing) {
-        existing.addEventListener('load', finishOk);
-        existing.addEventListener('error', () => finishErr('Falha ao carregar sql-asm.js'));
+        const scriptState = existing.getAttribute('data-sql-asm-status');
+        if (scriptState === 'loaded') {
+          finishOk();
+          return;
+        }
+        if (scriptState === 'error') {
+          existing.parentNode?.removeChild(existing);
+          existing = null;
+        } else {
+          existing.addEventListener('load', finishOk);
+          existing.addEventListener('error', () => finishErr('Falha ao carregar sql-asm.js'));
+          return;
+        }
+      }
+
+      prewarmAsmJsScript();
+      const prewarmed = document.querySelector('script[data-sql-asm="true"]') as HTMLScriptElement | null;
+      if (prewarmed) {
+        if (prewarmed.getAttribute('data-sql-asm-status') === 'loaded' || typeof win.initSqlJs === 'function') {
+          finishOk();
+          return;
+        }
+        prewarmed.addEventListener('load', finishOk);
+        prewarmed.addEventListener('error', () => finishErr('Não foi possível carregar sql-asm.js'));
         return;
       }
 
       const script = document.createElement('script');
-      script.src = resolveAssetPath('sql-asm.js');
+      script.src = resolvePublicAssetPath('sql-asm.js');
       script.async = true;
       script.setAttribute('data-sql-asm', 'true');
-      script.onload = finishOk;
-      script.onerror = () => finishErr('Não foi possível carregar sql-asm.js');
+      script.setAttribute('data-sql-asm-status', 'loading');
+      script.onload = () => {
+        script.setAttribute('data-sql-asm-status', 'loaded');
+        finishOk();
+      };
+      script.onerror = () => {
+        script.setAttribute('data-sql-asm-status', 'error');
+        finishErr('Não foi possível carregar sql-asm.js');
+      };
       document.head.appendChild(script);
     });
   }
@@ -243,7 +276,10 @@ export class SqlJsStore implements DataStore {
   private async loadEngine(): Promise<SqlJsStatic> {
     if (this.sqlEngine) return this.sqlEngine;
 
-    if (hasWebAssemblySupport()) {
+    const cachedEngine = getCachedSqlEngine();
+    const wasmSupported = hasWebAssemblySupport();
+
+    if (cachedEngine !== 'asmjs' && wasmSupported) {
       let wasmBuffer: ArrayBuffer | null = null;
       try {
         recordBootStep('Importando sql.js (lazy)');
@@ -253,7 +289,7 @@ export class SqlJsStore implements DataStore {
           (sqlModule as unknown as SqlJsStatic & ((cfg?: unknown) => Promise<SqlJsStatic>));
 
         recordBootStep('Carregando sql-wasm.wasm local');
-        const res = await fetch(resolveAssetPath('sql-wasm.wasm'));
+        const res = await fetch(resolvePublicAssetPath('sql-wasm.wasm'));
         if (!res.ok) {
           throw new Error(`HTTP ${res.status} ao buscar sql-wasm.wasm`);
         }
@@ -264,22 +300,30 @@ export class SqlJsStore implements DataStore {
         wasmBuffer = null;
 
         this.sqlEngine = await initSqlJsFn({ wasmBinary: binaryToPass });
+        setCachedSqlEngine('wasm');
+        setBootAsmMode(false);
         this.updateStatus({ engineDetail: 'sql.js (WebAssembly)' });
         recordBootStep('SQLite WASM pronto');
         return this.sqlEngine;
       } catch (wasmErr) {
         const msg = (wasmErr as Error)?.message || String(wasmErr);
         console.warn('Falha ao iniciar SQLite via WebAssembly, ativando fallback asm.js:', msg);
-        recordBootError(`WASM fallback para asm.js: ${msg}`);
+        recordBootWarning(`WASM indisponível; usando fallback asm.js: ${msg}`);
+        setCachedSqlEngine('asmjs');
       } finally {
         wasmBuffer = null;
       }
+    } else if (!wasmSupported) {
+      setCachedSqlEngine('asmjs');
+      recordBootStep('WebAssembly ausente; usando modo compatível (asm.js)');
     } else {
-      recordBootStep('WebAssembly ausente neste WebView');
+      recordBootStep('Usando motor asm.js em cache');
     }
 
-    recordBootStep('Carregando sql-asm.js local (sem WASM)');
+    setBootAsmMode(true);
+    recordBootStep('Carregando banco em modo compatível (asm.js)…');
     this.sqlEngine = await this.loadAsmJsScript();
+    setCachedSqlEngine('asmjs');
     this.updateStatus({ engineDetail: 'sql-asm.js (asm.js puro)' });
     recordBootStep('SQLite asm.js pronto');
     return this.sqlEngine;

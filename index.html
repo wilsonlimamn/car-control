@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
-    <meta name="theme-color" content="#05070c" />
+    <meta name="theme-color" content="#080c15" />
     <meta name="mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
@@ -24,6 +24,29 @@
       media="print"
       onload="this.media='all'"
     />
+    <style>
+      @-webkit-keyframes bootBarSlide {
+        0% { -webkit-transform: translateX(-100%); transform: translateX(-100%); }
+        100% { -webkit-transform: translateX(260%); transform: translateX(260%); }
+      }
+      @keyframes bootBarSlide {
+        0% { -webkit-transform: translateX(-100%); transform: translateX(-100%); }
+        100% { -webkit-transform: translateX(260%); transform: translateX(260%); }
+      }
+      #boot-progress-bar {
+        width: 40%;
+        height: 100%;
+        border-radius: 9999px;
+        background: #f59e0b;
+        -webkit-animation: bootBarSlide 1.35s ease-in-out infinite;
+        animation: bootBarSlide 1.35s ease-in-out infinite;
+      }
+      .low-perf #boot-progress-bar {
+        -webkit-animation: none !important;
+        animation: none !important;
+        width: 60%;
+      }
+    </style>
     <script>
       (function () {
         if (typeof globalThis === 'undefined') {
@@ -143,6 +166,7 @@
 
         var LS_EVENTS_KEY = 'car_control_boot_events_v1';
         var LS_STATE_KEY = 'car_control_boot_state_v1';
+        var LS_ENGINE_KEY = 'car_control_sql_engine_v1';
         var MAX_EVENTS = 100;
         var now = Date.now();
         var sessionId = String(now) + '-' + Math.floor(Math.random() * 10000);
@@ -197,12 +221,42 @@
           } catch (e) {}
         }
 
+        var slowActionsTimer = null;
+        var coreMountTimer = null;
+
+        function scheduleBootTimers() {
+          if (slowActionsTimer) {
+            clearTimeout(slowActionsTimer);
+            slowActionsTimer = null;
+          }
+          if (coreMountTimer) {
+            clearTimeout(coreMountTimer);
+            coreMountTimer = null;
+          }
+
+          slowActionsTimer = setTimeout(function () {
+            if (!diag.done) {
+              diag.showSlowActions();
+            }
+          }, 15000);
+
+          coreMountTimer = setTimeout(function () {
+            if (!diag.done && !diag.reactMounted) {
+              diag.setFatalError(
+                'O carregamento dos scripts principais ultrapassou 30 segundos neste WebView.'
+              );
+            }
+          }, 30000);
+        }
+
         var diag = {
           sessionId: sessionId,
           startTime: now,
           lastTime: now,
           done: false,
           reactMounted: false,
+          asmMode: false,
+          fatalError: null,
           currentLabel: 'Carregando…',
           previousBootFailed: previousBootFailed,
           previousBootState: previousBootState,
@@ -246,6 +300,26 @@
               } catch (err) {}
             }
           },
+          recordWarning: function (msg) {
+            if (!msg) return;
+            var tagged = '[Aviso] ' + msg;
+            if (diag.errors.indexOf(tagged) === -1) {
+              diag.errors.push(tagged);
+            }
+            var t = Date.now();
+            persistedEvents.push({
+              sessionId: sessionId,
+              type: 'warn',
+              label: msg,
+              tsIso: new Date(t).toISOString(),
+              elapsedMs: t - diag.startTime,
+              deltaMs: t - diag.lastTime
+            });
+            if (persistedEvents.length > MAX_EVENTS) {
+              persistedEvents = persistedEvents.slice(-MAX_EVENTS);
+            }
+            saveEvents(persistedEvents);
+          },
           recordError: function (msg) {
             if (!msg) return;
             if (diag.errors.indexOf(msg) === -1) {
@@ -265,8 +339,89 @@
             }
             saveEvents(persistedEvents);
           },
+          setAsmMode: function (enabled) {
+            diag.asmMode = Boolean(enabled);
+            var hintEl = document.getElementById('boot-slow-hint');
+            if (hintEl) {
+              hintEl.style.display = enabled ? 'block' : 'none';
+            }
+          },
+          showSlowActions: function () {
+            var actions = document.getElementById('boot-actions');
+            if (actions) {
+              actions.style.display = 'flex';
+            }
+          },
+          setFatalError: function (msg) {
+            diag.fatalError = msg;
+            diag.recordError(msg);
+            var splash = document.getElementById('app-boot-splash');
+            var box = document.getElementById('boot-error-box');
+            var actions = document.getElementById('boot-actions');
+            var details = document.getElementById('boot-details-box');
+            var progress = document.getElementById('boot-progress-wrap');
+            if (splash) {
+              splash.style.display = 'flex';
+            }
+            if (progress) {
+              progress.style.display = 'none';
+            }
+            if (box) {
+              box.style.display = 'block';
+              box.textContent = msg;
+            }
+            if (actions) {
+              actions.style.display = 'flex';
+            }
+            if (details && details.style.display === 'block') {
+              details.textContent = buildDetailsText();
+            }
+          },
+          hideSplash: function () {
+            var splash = document.getElementById('app-boot-splash');
+            if (splash) {
+              splash.style.display = 'none';
+            }
+          },
+          resetSplash: function (label) {
+            diag.done = false;
+            diag.fatalError = null;
+            diag.startTime = Date.now();
+            diag.lastTime = diag.startTime;
+            var splash = document.getElementById('app-boot-splash');
+            var box = document.getElementById('boot-error-box');
+            var actions = document.getElementById('boot-actions');
+            var details = document.getElementById('boot-details-box');
+            var progress = document.getElementById('boot-progress-wrap');
+            if (splash) {
+              splash.style.display = 'flex';
+            }
+            if (progress) {
+              progress.style.display = 'block';
+            }
+            if (box) {
+              box.style.display = 'none';
+              box.textContent = '';
+            }
+            if (actions) {
+              actions.style.display = 'none';
+            }
+            if (details) {
+              details.style.display = 'none';
+            }
+            diag.recordStep(label || 'Tentando novamente…');
+            scheduleBootTimers();
+          },
           markDone: function () {
             diag.done = true;
+            if (slowActionsTimer) {
+              clearTimeout(slowActionsTimer);
+              slowActionsTimer = null;
+            }
+            if (coreMountTimer) {
+              clearTimeout(coreMountTimer);
+              coreMountTimer = null;
+            }
             var t = Date.now();
             persistedEvents.push({
               sessionId: sessionId,
@@ -285,8 +440,10 @@
               finishedAtIso: new Date(t).toISOString(),
               lastStep: 'Inicialização concluída'
             });
+            diag.hideSplash();
           }
         };
+
         diag.recordStep('HTML carregado');
         window.__BOOT_DIAG__ = diag;
 
@@ -295,6 +452,10 @@
           var chromeMatch = ua.match(/(?:Chrome|Chromium|CriOS)\/([\d.]+)/i);
           var chromeVer = chromeMatch ? 'Chromium ' + chromeMatch[1] : ua;
           var wasm = (typeof WebAssembly === 'object' && typeof WebAssembly.instantiate === 'function') ? 'Sim' : 'Não (asm.js)';
+          var cachedEngine = '';
+          try {
+            cachedEngine = localStorage.getItem(LS_ENGINE_KEY) || '';
+          } catch (e) {}
           var idb = (typeof indexedDB !== 'undefined' && indexedDB !== null) ? 'Disponível' : 'Indisponível (fallback localStorage)';
           var sw = (typeof navigator !== 'undefined' && 'serviceWorker' in navigator) ? 'Disponível' : 'Indisponível';
           var memParts = [];
@@ -307,7 +468,7 @@
           var lines = [
             'Navegador/WebView: ' + chromeVer,
             'User-Agent: ' + ua,
-            'WebAssembly: ' + wasm,
+            'WebAssembly: ' + wasm + (cachedEngine ? ' (cache: ' + cachedEngine + ')' : ''),
             'IndexedDB: ' + idb,
             'Service Worker: ' + sw,
             'Memória: ' + (memParts.length ? memParts.join(' | ') : 'API não disponível'),
@@ -319,29 +480,12 @@
             lines.push('  - ' + s.label + ': ' + s.elapsedMs + ' ms (+' + s.deltaMs + ' ms)');
           }
           if (diag.errors.length > 0) {
-            lines.push('', 'Erros capturados:');
+            lines.push('', 'Avisos e erros capturados:');
             for (var j = 0; j < diag.errors.length; j++) {
               lines.push('  ! ' + diag.errors[j]);
             }
           }
           return lines.join('\n');
-        }
-
-        function showBootIssue(msg) {
-          diag.recordError(msg);
-          var box = document.getElementById('boot-error-box');
-          var actions = document.getElementById('boot-actions');
-          var details = document.getElementById('boot-details-box');
-          if (box) {
-            box.style.display = 'block';
-            box.textContent = msg;
-          }
-          if (actions) {
-            actions.style.display = 'flex';
-          }
-          if (details && details.style.display === 'block') {
-            details.textContent = buildDetailsText();
-          }
         }
 
         window.__SHOW_BOOT_DETAILS__ = function () {
@@ -355,23 +499,56 @@
           }
         };
 
+        window.__BOOT_RETRY__ = function () {
+          if (typeof window.__RETRY_APP_BOOT__ === 'function' && diag.reactMounted) {
+            window.__RETRY_APP_BOOT__();
+          } else {
+            window.location.reload();
+          }
+        };
+
         window.addEventListener(
           'error',
           function (e) {
             var msg = (e && e.message) || '';
             var filename = (e && e.filename) || '';
+            var lineno = (e && e.lineno) || 0;
+            var colno = (e && e.colno) || 0;
             var target = e && e.target;
-            var errText = '';
-            if (target && target.tagName === 'SCRIPT') {
-              errText = 'Falha ao carregar script: ' + (target.src || 'módulo JS');
-            } else {
-              errText = 'Erro ao iniciar: ' + (msg || 'Falha de script') + (filename ? ' (' + filename + ':' + (e.lineno || 0) + ')' : '');
+
+            // 1. Non-script resources (external fonts, images, stylesheets): tolerable
+            if (target && target.tagName && target.tagName !== 'SCRIPT') {
+              var resSrc = target.href || target.src || target.tagName;
+              diag.recordWarning('Recurso não crítico (' + target.tagName + '): ' + resSrc);
+              return;
             }
 
-            // Ignore ONLY modern-browser probe / modern ESM chunk errors while legacy chunks boot.
-            // Never ignore errors coming from -legacy- or polyfills-legacy bundles.
+            // 2. Opaque "Script error." or empty filename/line from older WebView: tolerable, log explicitly
+            var isOpaqueScriptError =
+              msg === 'Script error.' ||
+              msg === 'Script error' ||
+              (!filename && lineno === 0 && !(target && target.tagName === 'SCRIPT'));
+            if (isOpaqueScriptError) {
+              diag.recordWarning(
+                'Script error. (sem detalhes de arquivo/linha do WebView/cross-origin)' +
+                  (filename ? ' [' + filename + ':' + lineno + ':' + colno + ']' : '')
+              );
+              return;
+            }
+
+            var loc = filename ? filename + ':' + lineno + (colno ? ':' + colno : '') : '';
+            var errText =
+              target && target.tagName === 'SCRIPT'
+                ? 'Falha ao carregar script: ' + (target.src || 'módulo JS')
+                : 'Erro JS (' + (loc || 'sem arquivo') + '): ' + (msg || 'Falha de script');
+
+            // 3. Modern ESM / vite-legacy probe errors before legacy entry executes: tolerable
             var hasLegacyEntry = !!document.getElementById('vite-legacy-entry');
-            var isLegacyFile = filename.indexOf('-legacy-') !== -1 || filename.indexOf('polyfills-legacy') !== -1;
+            var isLegacyFile =
+              filename.indexOf('-legacy-') !== -1 || filename.indexOf('polyfills-legacy') !== -1;
+            var targetSrc = (target && target.src) || '';
+            var isLegacyTarget =
+              targetSrc.indexOf('-legacy-') !== -1 || targetSrc.indexOf('polyfills-legacy') !== -1;
             var jsBooted = false;
             for (var k = 0; k < diag.steps.length; k++) {
               if (diag.steps[k].label === 'JS inicializado') {
@@ -379,76 +556,93 @@
                 break;
               }
             }
-
-            var isSameDoc = !filename || filename === window.location.href || filename.indexOf('data:') === 0;
+            var isSameDoc =
+              !filename || filename === window.location.href || filename.indexOf('data:') === 0;
             var isModernChunk = filename.indexOf('/assets/') !== -1 && !isLegacyFile;
             var isProbeSyntax =
               msg.indexOf('import.meta') !== -1 ||
               msg.indexOf('Unexpected token *') !== -1 ||
               msg.indexOf('Unexpected token function') !== -1;
 
-            var isProbeOrModernError =
+            if (
+              !jsBooted &&
+              hasLegacyEntry &&
               !isLegacyFile &&
-              !(target && target.tagName === 'SCRIPT' && (target.src || '').indexOf('-legacy-') !== -1) &&
-              (isModernChunk || (isSameDoc && isProbeSyntax) || (!filename && !(target && target.tagName === 'SCRIPT')));
-
-            if (!jsBooted && hasLegacyEntry && isProbeOrModernError) {
-              diag.recordError('Fallback legacy acionado: ' + errText);
+              !isLegacyTarget &&
+              (isModernChunk || (isSameDoc && isProbeSyntax))
+            ) {
+              diag.recordWarning('Fallback legacy acionado: ' + errText);
               var statusEl = document.getElementById('boot-status-text');
               if (statusEl) {
                 statusEl.textContent = 'Carregando modo compatível…';
               }
-              setTimeout(function () {
-                var started = false;
-                for (var m = 0; m < diag.steps.length; m++) {
-                  if (diag.steps[m].label === 'JS inicializado') {
-                    started = true;
-                    break;
-                  }
-                }
-                if (!started && !diag.done) {
-                  showBootIssue(errText);
-                }
-              }, 8000);
               return;
             }
 
-            showBootIssue(errText);
+            // 4. After React mounted, lazy chunk retries or recoverable script errors are logged as warnings;
+            // fatal UI render crashes go to AppErrorBoundary and fatal DB failures go through App.tsx
+            if (diag.reactMounted) {
+              diag.recordWarning(errText);
+              return;
+            }
+
+            // 5. Critical entry script or fatal pre-mount syntax error before React mounts
+            diag.setFatalError(errText);
           },
           true
         );
 
         window.addEventListener('unhandledrejection', function (e) {
           var reason = e && e.reason && (e.reason.message || String(e.reason));
-          showBootIssue('Erro assíncrono: ' + (reason || 'Falha ao carregar'));
+          diag.recordWarning('Rejeição assíncrona tolerada: ' + (reason || 'sem detalhes'));
         });
 
-        setTimeout(function () {
-          if (!diag.done && !diag.reactMounted) {
-            var box = document.getElementById('boot-error-box');
-            if (box && box.style.display === 'block' && box.textContent) {
-              diag.recordError('Timeout de 30s após erro anterior');
-              return;
-            }
-            showBootIssue('A inicialização dos scripts ultrapassou 30 segundos neste dispositivo. Você pode tentar novamente ou ver os detalhes.');
-          }
-        }, 30000);
+        scheduleBootTimers();
       })();
     </script>
   </head>
-  <body class="antialiased selection:bg-amber-500/30" style="background-color:#0b1120;color:#f8fafc;margin:0;">
-    <div id="root">
-      <div style="min-height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:center;background:#0b1120;color:#f8fafc;font-family:system-ui,-apple-system,sans-serif;padding:20px;text-align:center;">
-        <div style="font-size:28px;font-weight:900;letter-spacing:0.05em;">CAR CONTROL</div>
-        <div id="boot-status-text" style="font-size:18px;color:#cbd5e1;margin-top:10px;font-weight:600;">Carregando…</div>
-        <div id="boot-error-box" style="display:none;margin-top:16px;padding:12px 16px;border-radius:12px;background:#7f1d1d;color:#fecaca;font-size:15px;max-width:560px;word-break:break-word;border:1px solid #ef4444;"></div>
-        <div id="boot-actions" style="display:none;margin-top:16px;flex-wrap:wrap;justify-content:center;">
-          <button type="button" onclick="window.location.reload()" style="min-height:52px;padding:0 22px;margin:6px;border-radius:12px;background:#1d4ed8;color:#ffffff;font-size:16px;font-weight:800;border:none;">Tentar novamente</button>
-          <button type="button" onclick="window.__SHOW_BOOT_DETAILS__()" style="min-height:52px;padding:0 22px;margin:6px;border-radius:12px;background:#334155;color:#f8fafc;font-size:16px;font-weight:800;border:1px solid #64748b;">Ver detalhes</button>
-        </div>
-        <pre id="boot-details-box" style="display:none;margin-top:14px;padding:12px 16px;border-radius:12px;background:#0f172a;color:#cbd5e1;font-size:13px;max-width:680px;width:100%;text-align:left;white-space:pre-wrap;word-break:break-word;border:1px solid #334155;max-height:40vh;overflow:auto;"></pre>
+  <body class="antialiased selection:bg-amber-500/30" style="background-color:#080c15;color:#f8fafc;margin:0;">
+    <div
+      id="app-boot-splash"
+      style="position:fixed;top:0;right:0;bottom:0;left:0;z-index:9999;display:flex;flex-direction:column;align-items:center;justify-content:center;background:#080c15;color:#f8fafc;font-family:system-ui,-apple-system,sans-serif;padding:20px;padding-top:calc(20px + env(safe-area-inset-top, 0px));text-align:center;"
+    >
+      <div style="font-size:28px;font-weight:900;letter-spacing:0.06em;">CAR CONTROL</div>
+      <div
+        id="boot-progress-wrap"
+        style="width:200px;max-width:70vw;height:4px;border-radius:9999px;background:rgba(255,255,255,0.14);overflow:hidden;margin-top:14px;"
+      >
+        <div id="boot-progress-bar"></div>
       </div>
+      <div id="boot-status-text" style="font-size:17px;color:#cbd5e1;margin-top:12px;font-weight:600;">Carregando…</div>
+      <div id="boot-slow-hint" style="display:none;font-size:14px;color:#fcd34d;margin-top:8px;font-weight:600;max-width:460px;">
+        Primeira abertura pode levar até 1 minuto neste aparelho
+      </div>
+      <div
+        id="boot-error-box"
+        style="display:none;margin-top:16px;padding:12px 16px;border-radius:12px;background:#7f1d1d;color:#fecaca;font-size:15px;max-width:560px;word-break:break-word;border:1px solid #ef4444;"
+      ></div>
+      <div id="boot-actions" style="display:none;margin-top:16px;flex-wrap:wrap;justify-content:center;">
+        <button
+          type="button"
+          onclick="window.__BOOT_RETRY__()"
+          style="min-height:52px;padding:0 22px;margin:6px;border-radius:12px;background:#1d4ed8;color:#ffffff;font-size:16px;font-weight:800;border:none;"
+        >
+          Tentar novamente
+        </button>
+        <button
+          type="button"
+          onclick="window.__SHOW_BOOT_DETAILS__()"
+          style="min-height:52px;padding:0 22px;margin:6px;border-radius:12px;background:#334155;color:#f8fafc;font-size:16px;font-weight:800;border:1px solid #64748b;"
+        >
+          Ver detalhes
+        </button>
+      </div>
+      <pre
+        id="boot-details-box"
+        style="display:none;margin-top:14px;padding:12px 16px;border-radius:12px;background:#0f172a;color:#cbd5e1;font-size:13px;max-width:680px;width:100%;text-align:left;white-space:pre-wrap;word-break:break-word;border:1px solid #334155;max-height:40vh;overflow:auto;"
+      ></pre>
     </div>
+    <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

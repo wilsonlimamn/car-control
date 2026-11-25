@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useState, useCallback } from 'react';
+import { Suspense, useEffect, useState, useCallback } from 'react';
 import { BgStyleType, CategoryType, MaintenanceRecord, PartWithStats, TabType, ThemeType, Vehicle } from './types';
 import {
   initDatabase,
@@ -36,31 +36,61 @@ import {
   copyTextWithFallback,
   detectAndApplyLowPerfMode,
   dismissPreviousBootFailure,
-  getCurrentBootLabel,
   getDiagnosticText,
   getPreviousCrashReportText,
   hasPreviousBootFailure,
+  hideBootSplash,
   markBootDone,
   recordBootError,
   recordBootStep,
-  subscribeBootStep,
+  resetBootSplash,
+  setBootFatalError,
 } from './utils/diagnostics';
+import { ChunkErrorBoundary, lazyWithRetry } from './utils/lazyWithRetry';
+import { syncStatusBarTheme } from './utils/statusBar';
 import { Navigation } from './components/Navigation';
-import { AlertTriangle, Car } from 'lucide-react';
+import { AlertTriangle } from 'lucide-react';
 
-// Code splitting: telas e modais carregados sob demanda
-const HomeView = lazy(() => import('./views/HomeView').then((m) => ({ default: m.HomeView })));
-const PartsView = lazy(() => import('./views/PartsView').then((m) => ({ default: m.PartsView })));
-const VehicleView = lazy(() => import('./views/VehicleView').then((m) => ({ default: m.VehicleView })));
-const SettingsView = lazy(() => import('./views/SettingsView').then((m) => ({ default: m.SettingsView })));
-const OnboardingView = lazy(() => import('./components/OnboardingView').then((m) => ({ default: m.OnboardingView })));
+// Code splitting com retry automático (até 3 tentativas) em WebView lento
+const HomeView = lazyWithRetry(
+  () => import('./views/HomeView').then((m) => ({ default: m.HomeView })),
+  'Início'
+);
+const PartsView = lazyWithRetry(
+  () => import('./views/PartsView').then((m) => ({ default: m.PartsView })),
+  'Peças'
+);
+const VehicleView = lazyWithRetry(
+  () => import('./views/VehicleView').then((m) => ({ default: m.VehicleView })),
+  'Veículo'
+);
+const SettingsView = lazyWithRetry(
+  () => import('./views/SettingsView').then((m) => ({ default: m.SettingsView })),
+  'Ajustes'
+);
+const OnboardingView = lazyWithRetry(
+  () => import('./components/OnboardingView').then((m) => ({ default: m.OnboardingView })),
+  'Cadastro Inicial'
+);
 
-const NumericModal = lazy(() => import('./components/NumericModal').then((m) => ({ default: m.NumericModal })));
-const ConfirmModal = lazy(() => import('./components/ConfirmModal').then((m) => ({ default: m.ConfirmModal })));
-const VehicleModal = lazy(() => import('./components/VehicleModal').then((m) => ({ default: m.VehicleModal })));
-const PartConfigModal = lazy(() => import('./components/PartConfigModal').then((m) => ({ default: m.PartConfigModal })));
+const NumericModal = lazyWithRetry(
+  () => import('./components/NumericModal').then((m) => ({ default: m.NumericModal })),
+  'Teclado Numérico'
+);
+const ConfirmModal = lazyWithRetry(
+  () => import('./components/ConfirmModal').then((m) => ({ default: m.ConfirmModal })),
+  'Confirmação'
+);
+const VehicleModal = lazyWithRetry(
+  () => import('./components/VehicleModal').then((m) => ({ default: m.VehicleModal })),
+  'Dados do Veículo'
+);
+const PartConfigModal = lazyWithRetry(
+  () => import('./components/PartConfigModal').then((m) => ({ default: m.PartConfigModal })),
+  'Configurar Peça'
+);
 
-function buildInMemoryFallbackData(): {
+function buildSamplePreviewDataset(): {
   vehicle: Vehicle;
   parts: PartWithStats[];
   history: MaintenanceRecord[];
@@ -111,8 +141,7 @@ function ViewFallback() {
 
 function App() {
   const [isReady, setIsReady] = useState(false);
-  const [initError, setInitError] = useState<string | null>(null);
-  const [dbFallbackState, setDbFallbackState] = useState<'none' | 'slow_loading' | 'error'>('none');
+  const [isSamplePreviewMode, setIsSamplePreviewMode] = useState(false);
   const [showDetails, setShowDetails] = useState(false);
   const [bootAttempt, setBootAttempt] = useState(0);
   const [currentTab, setCurrentTab] = useState<TabType>('home');
@@ -120,7 +149,6 @@ function App() {
   const [retryingPersist, setRetryingPersist] = useState(false);
   const [dismissedBannerMsg, setDismissedBannerMsg] = useState<string | null>(null);
   const [autoRestoredDate, setAutoRestoredDate] = useState<string | null>(null);
-  const [bootStepLabel, setBootStepLabel] = useState<string>(() => getCurrentBootLabel());
   const [showPrevCrashBanner, setShowPrevCrashBanner] = useState<boolean>(() => hasPreviousBootFailure());
   const [showPrevCrashReport, setShowPrevCrashReport] = useState(false);
   const [copiedCrashReport, setCopiedCrashReport] = useState(false);
@@ -166,51 +194,49 @@ function App() {
     onConfirm: () => {},
   });
 
-  const activateMemoryFallback = useCallback((mode: 'slow_loading' | 'error') => {
-    const mem = buildInMemoryFallbackData();
-    setVehicles([mem.vehicle]);
-    setActiveVehicleState(mem.vehicle);
-    setPartsWithStats(mem.parts);
-    setHistory(mem.history);
-    setDbFallbackState(mode);
+  const enterSamplePreviewDev = useCallback(() => {
+    if (!import.meta.env.DEV) return;
+    const preview = buildSamplePreviewDataset();
+    setVehicles([preview.vehicle]);
+    setActiveVehicleState(preview.vehicle);
+    setPartsWithStats(preview.parts);
+    setHistory(preview.history);
+    setIsSamplePreviewMode(true);
     setIsReady(true);
+    hideBootSplash();
     markBootDone();
+  }, []);
+
+  const exitSamplePreviewMode = useCallback(() => {
+    setIsSamplePreviewMode(false);
+    setIsReady(false);
+    resetBootSplash('Carregando seus dados salvos…');
+    setBootAttempt((n) => n + 1);
   }, []);
 
   // Load or reload all state from SQLite
   const reloadData = useCallback(async () => {
-    try {
-      const vList = await getVehicles();
-      setVehicles(vList);
+    const vList = await getVehicles();
+    setVehicles(vList);
 
-      const active = await getActiveVehicle();
-      setActiveVehicleState(active);
+    const active = await getActiveVehicle();
+    setActiveVehicleState(active);
 
-      if (active) {
-        const rawParts = await getParts(active.id);
-        const computed = rawParts.map((p) => calculatePartStats(p, active.current_km));
-        setPartsWithStats(computed);
+    if (active) {
+      const rawParts = await getParts(active.id);
+      const computed = rawParts.map((p) => calculatePartStats(p, active.current_km));
+      setPartsWithStats(computed);
 
-        const hist = await getHistory(active.id);
-        setHistory(hist);
-      } else {
-        setPartsWithStats([]);
-        setHistory([]);
-      }
-
-      const st = await getSettings();
-      setTheme(st.theme);
-      setBgStyle(st.bgStyle);
-    } catch (err) {
-      console.error('Error reloading database data:', err);
+      const hist = await getHistory(active.id);
+      setHistory(hist);
+    } else {
+      setPartsWithStats([]);
+      setHistory([]);
     }
-  }, []);
 
-  useEffect(() => {
-    const unsub = subscribeBootStep((label) => {
-      setBootStepLabel(label);
-    });
-    return unsub;
+    const st = await getSettings();
+    setTheme(st.theme);
+    setBgStyle(st.bgStyle);
   }, []);
 
   useEffect(() => {
@@ -222,32 +248,48 @@ function App() {
     });
   }, []);
 
-  // Non-blocking lazy database initialization triggered AFTER the initial shell is visible
+  // Register clean retry handler for the single HTML boot splash
   useEffect(() => {
+    const win = window as unknown as {
+      __RETRY_APP_BOOT__?: () => void;
+      __DEV_SAMPLE_PREVIEW__?: () => void;
+    };
+    win.__RETRY_APP_BOOT__ = () => {
+      setIsSamplePreviewMode(false);
+      setIsReady(false);
+      resetBootSplash('Tentando novamente…');
+      setBootAttempt((n) => n + 1);
+    };
+    if (import.meta.env.DEV) {
+      win.__DEV_SAMPLE_PREVIEW__ = enterSamplePreviewDev;
+    }
+    return () => {
+      delete win.__RETRY_APP_BOOT__;
+      delete win.__DEV_SAMPLE_PREVIEW__;
+    };
+  }, [enterSamplePreviewDev]);
+
+  // Hide the single splash while showing the outdated-WebView notice
+  useEffect(() => {
+    if (outdatedWebView.outdated && !bypassOldWebView) {
+      hideBootSplash();
+    }
+  }, [outdatedWebView.outdated, bypassOldWebView]);
+
+  // Non-blocking lazy database initialization after React shell mounts;
+  // never substitutes user data with sample data on slow loads.
+  useEffect(() => {
+    if (outdatedWebView.outdated && !bypassOldWebView) {
+      return;
+    }
+
     let active = true;
-    let dbSettled = false;
-    setInitError(null);
-    setDbFallbackState('none');
-
-    const timeoutId = window.setTimeout(() => {
-      if (active && !dbSettled) {
-        const msg =
-          'O banco local demorou mais de 30 segundos neste WebView. Painel aberto com dados de exemplo em memória enquanto o carregamento continua.';
-        recordBootError(msg);
-        setInitError(msg);
-        activateMemoryFallback('slow_loading');
-      }
-    }, 30000);
-
-    // Schedule DB boot after first paint so the loading shell is visible immediately
     const startTimerId = window.setTimeout(() => {
       if (!active) return;
       recordBootStep('Casca visível; iniciando banco local');
 
       initDatabase()
         .then(async () => {
-          dbSettled = true;
-          window.clearTimeout(timeoutId);
           if (!active) return;
           await reloadData();
           if (!active) return;
@@ -256,8 +298,7 @@ function App() {
             Date.now();
           detectAndApplyLowPerfMode(Date.now() - bootStart);
           recordBootStep('Painel pronto');
-          markBootDone();
-          setDbFallbackState('none');
+          setIsSamplePreviewMode(false);
           const restoredDate = getAutoRestoredBackupDate();
           if (restoredDate) {
             setAutoRestoredDate(restoredDate);
@@ -265,65 +306,62 @@ function App() {
           if (!isNativeCapacitorPlatform()) {
             void requestStoragePersistence().catch(() => {});
           }
-          setInitError(null);
           setDismissedBannerMsg(null);
+          markBootDone();
+          hideBootSplash();
           setIsReady(true);
         })
         .catch((err) => {
-          dbSettled = true;
-          window.clearTimeout(timeoutId);
           console.error('Failed to initialize SQLite database:', err);
-          const msg = (err as Error)?.message || 'Falha ao iniciar banco de dados local.';
+          const msg = (err as Error)?.message || 'Falha ao iniciar o banco de dados local.';
           recordBootError(msg);
           if (active) {
-            setInitError(msg);
-            activateMemoryFallback('error');
+            setBootFatalError(
+              `Não foi possível abrir o banco local: ${msg}`
+            );
           }
         });
     }, 32);
 
     return () => {
       active = false;
-      window.clearTimeout(timeoutId);
       window.clearTimeout(startTimerId);
     };
-  }, [bootAttempt, reloadData, activateMemoryFallback]);
+  }, [bootAttempt, reloadData, outdatedWebView.outdated, bypassOldWebView]);
 
-  // Sync theme and bg-style to document body / root
+  // Sync theme, bg-style, and Capacitor Android StatusBar
   useEffect(() => {
     document.documentElement.setAttribute('data-color-theme', theme);
     document.documentElement.setAttribute('data-bg-style', bgStyle);
     document.body.setAttribute('data-color-theme', theme);
     document.body.setAttribute('data-bg-style', bgStyle);
+    void syncStatusBarTheme(theme, bgStyle);
   }, [theme, bgStyle]);
 
   const handleThemeChange = async (newTheme: ThemeType) => {
     setTheme(newTheme);
-    try {
-      await updateSetting('theme', newTheme);
-    } catch {
-      // Keep UI responsive in memory fallback mode
-    }
+    if (isSamplePreviewMode) return;
+    await updateSetting('theme', newTheme);
   };
 
   const handleBgStyleChange = async (newBg: BgStyleType) => {
     setBgStyle(newBg);
-    try {
-      await updateSetting('bgStyle', newBg);
-    } catch {
-      // Keep UI responsive in memory fallback mode
-    }
+    if (isSamplePreviewMode) return;
+    await updateSetting('bgStyle', newBg);
   };
 
   // Renew part ("Troquei")
   const handleRenewPart = async (partId: number) => {
     if (!activeVehicle) return;
     const today = getTodayIso();
-    if (dbFallbackState !== 'none') {
+    if (isSamplePreviewMode) {
       setPartsWithStats((prev) =>
         prev.map((p) =>
           p.id === partId
-            ? calculatePartStats({ ...p, last_change_km: activeVehicle.current_km, last_change_date: today }, activeVehicle.current_km)
+            ? calculatePartStats(
+                { ...p, last_change_km: activeVehicle.current_km, last_change_date: today },
+                activeVehicle.current_km
+              )
             : p
         )
       );
@@ -339,7 +377,7 @@ function App() {
       setIsFuelModalOpen(false);
       return;
     }
-    if (dbFallbackState !== 'none') {
+    if (isSamplePreviewMode) {
       const nextFuel = Math.min(activeVehicle.tank_capacity, activeVehicle.fuel_level + litros);
       setActiveVehicleState({ ...activeVehicle, fuel_level: nextFuel });
       setIsFuelModalOpen(false);
@@ -358,7 +396,7 @@ function App() {
     }
 
     const applyKm = async () => {
-      if (dbFallbackState !== 'none') {
+      if (isSamplePreviewMode) {
         setActiveVehicleState({ ...activeVehicle, current_km: newKm });
         setPartsWithStats((prev) => prev.map((p) => calculatePartStats(p, newKm)));
         return;
@@ -389,7 +427,7 @@ function App() {
   const handleConfirmFuelLevel = async (litros: number) => {
     if (!activeVehicle) return;
     const clamped = Math.min(activeVehicle.tank_capacity, Math.max(0, litros));
-    if (dbFallbackState !== 'none') {
+    if (isSamplePreviewMode) {
       setActiveVehicleState({ ...activeVehicle, fuel_level: clamped });
       setIsFuelLevelModalOpen(false);
       return;
@@ -403,7 +441,7 @@ function App() {
   const handleConfirmConsumption = async (consumption: number) => {
     if (!activeVehicle) return;
     const clamped = Math.max(1, consumption);
-    if (dbFallbackState !== 'none') {
+    if (isSamplePreviewMode) {
       setActiveVehicleState({ ...activeVehicle, avg_consumption: clamped });
       setIsConsumptionModalOpen(false);
       return;
@@ -422,7 +460,7 @@ function App() {
     consumption: number,
     vehicleId?: number
   ) => {
-    if (dbFallbackState !== 'none') {
+    if (isSamplePreviewMode) {
       if (vehicleId && activeVehicle && vehicleId === activeVehicle.id) {
         const updated = {
           ...activeVehicle,
@@ -459,7 +497,7 @@ function App() {
     partId?: number;
   }) => {
     if (!activeVehicle) return;
-    if (dbFallbackState !== 'none') {
+    if (isSamplePreviewMode) {
       if (data.partId) {
         setPartsWithStats((prev) =>
           prev.map((p) =>
@@ -511,7 +549,7 @@ function App() {
   };
 
   const handleDeletePart = async (partId: number) => {
-    if (dbFallbackState !== 'none') {
+    if (isSamplePreviewMode) {
       setPartsWithStats((prev) => prev.filter((p) => p.id !== partId));
       setEditingPart(null);
       setIsPartConfigOpen(false);
@@ -525,19 +563,13 @@ function App() {
 
   // Select active vehicle
   const handleSelectVehicle = async (id: number) => {
-    if (dbFallbackState !== 'none') return;
+    if (isSamplePreviewMode) return;
     await setActiveVehicle(id);
     await reloadData();
   };
 
-  const handleRetryDatabaseOrPersist = async () => {
-    if (dbFallbackState !== 'none') {
-      setDismissedBannerMsg(null);
-      setIsReady(false);
-      setBootAttempt((n) => n + 1);
-      return;
-    }
-
+  const handleRetryPersistNow = async () => {
+    if (isSamplePreviewMode) return;
     setRetryingPersist(true);
     try {
       const ok = await retryPersistDatabaseNow();
@@ -566,37 +598,50 @@ function App() {
     setShowPrevCrashReport(false);
   };
 
-  const activeWarningMessage =
-    dbFallbackState !== 'none'
-      ? initError ||
-        (dbFallbackState === 'slow_loading'
-          ? 'O banco local demorou mais de 30 segundos neste WebView.'
-          : 'Não foi possível inicializar o SQLite local (sql.js / sql-asm.js).')
-      : persistenceStatus.allFailed
+  const persistenceErrorMessage =
+    !isSamplePreviewMode && persistenceStatus.allFailed
       ? persistenceStatus.lastError || 'Falha ao gravar no IndexedDB e no localStorage.'
       : null;
 
-  const showWarningBanner =
-    Boolean(activeWarningMessage) && dismissedBannerMsg !== activeWarningMessage;
+  const showPersistenceWarning =
+    Boolean(persistenceErrorMessage) && dismissedBannerMsg !== persistenceErrorMessage;
 
-  const dbFallbackBannerNode = showWarningBanner ? (
+  const sampleModeBannerNode = isSamplePreviewMode ? (
+    <div className="mb-3 cockpit-alert-warn rounded-2xl p-3.5 sm:p-4 flex flex-col sm:flex-row sm:items-center justify-between space-y-2.5 sm:space-y-0 sm:space-x-3">
+      <div className="min-w-0">
+        <h2 className="text-sm sm:text-base font-black uppercase">
+          Modo exemplo — dados não serão salvos
+        </h2>
+        <p className="text-xs sm:text-sm font-bold opacity-95 mt-0.5">
+          As alterações feitas aqui não são gravadas no banco local do aparelho.
+        </p>
+      </div>
+      <button
+        type="button"
+        onClick={exitSamplePreviewMode}
+        className="min-h-[44px] px-4 rounded-xl bg-[var(--accent)] text-[var(--accent-fg)] font-black text-xs sm:text-sm shrink-0"
+      >
+        Sair do modo exemplo
+      </button>
+    </div>
+  ) : null;
+
+  const persistenceWarningBannerNode = showPersistenceWarning ? (
     <div className="mb-3 cockpit-alert-warn rounded-2xl p-3.5 sm:p-4 flex flex-col space-y-2.5">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between space-y-2.5 sm:space-y-0 sm:space-x-3">
         <div className="min-w-0">
           <h2 className="text-sm sm:text-base font-black uppercase">
-            {dbFallbackState !== 'none'
-              ? 'Modo temporário em memória (falha no banco local)'
-              : 'Não foi possível salvar os dados neste aparelho'}
+            Não foi possível salvar os dados neste aparelho
           </h2>
           <p className="text-xs sm:text-sm font-bold opacity-95 mt-0.5 break-words">
-            {activeWarningMessage}
+            {persistenceErrorMessage}
           </p>
         </div>
         <div className="flex flex-wrap items-center cockpit-wrap-2 shrink-0">
           <button
             type="button"
             disabled={retryingPersist}
-            onClick={handleRetryDatabaseOrPersist}
+            onClick={handleRetryPersistNow}
             className="min-h-[44px] px-4 rounded-xl bg-[var(--accent)] text-[var(--accent-fg)] font-black text-xs sm:text-sm disabled:opacity-60"
           >
             {retryingPersist ? 'Tentando…' : 'Tentar novamente'}
@@ -610,7 +655,7 @@ function App() {
           </button>
           <button
             type="button"
-            onClick={() => setDismissedBannerMsg(activeWarningMessage)}
+            onClick={() => setDismissedBannerMsg(persistenceErrorMessage)}
             className="min-h-[44px] px-3 rounded-xl bg-black/25 hover:bg-black/40 font-black text-xs sm:text-sm uppercase"
           >
             Fechar
@@ -619,7 +664,7 @@ function App() {
       </div>
       {showDetails && (
         <pre className="p-3 rounded-xl bg-black/50 text-slate-100 text-xs font-mono whitespace-pre-wrap break-words max-h-48 overflow-auto border border-white/15">
-          {getDiagnosticText(activeWarningMessage || undefined)}
+          {getDiagnosticText(persistenceErrorMessage || undefined)}
         </pre>
       )}
     </div>
@@ -633,7 +678,7 @@ function App() {
             O app não abriu corretamente da última vez
           </h2>
           <p className="text-xs sm:text-sm font-bold opacity-90 mt-0.5">
-            As etapas e erros da abertura anterior foram salvos para ajudar a identificar o problema.
+            As etapas e avisos da abertura anterior foram salvos para ajudar a identificar o problema.
           </p>
         </div>
         <div className="flex flex-wrap items-center cockpit-wrap-2 shrink-0">
@@ -672,7 +717,12 @@ function App() {
     return (
       <div
         className="min-h-screen flex flex-col items-center justify-center p-5 text-left"
-        style={{ backgroundColor: '#0b1120', color: '#f8fafc', minHeight: '100vh' }}
+        style={{
+          backgroundColor: '#080c15',
+          color: '#f8fafc',
+          minHeight: '100vh',
+          paddingTop: 'calc(20px + env(safe-area-inset-top, 0px))',
+        }}
       >
         <div className="max-w-2xl w-full rounded-3xl p-6 sm:p-8 bg-slate-900 border-2 border-amber-500/60 flex flex-col space-y-5">
           <div className="flex items-center space-x-4">
@@ -720,6 +770,7 @@ function App() {
                 } catch {
                   // Ignore
                 }
+                resetBootSplash('Carregando…');
                 setBypassOldWebView(true);
               }}
               className="min-h-[56px] px-6 rounded-2xl bg-amber-500 text-black font-black text-base"
@@ -732,119 +783,46 @@ function App() {
     );
   }
 
+  // Single boot screen lives in index.html (#app-boot-splash); do not render a second loading screen here
   if (!isReady) {
-    return (
-      <div
-        className="min-h-screen flex flex-col items-center justify-center text-white p-6 text-center"
-        style={{ backgroundColor: '#0b1120', color: '#f8fafc', minHeight: '100vh' }}
-      >
-        <div className="w-16 h-16 rounded-3xl bg-blue-600/25 border border-blue-500/50 text-blue-400 flex items-center justify-center mb-4">
-          <Car size={34} />
-        </div>
-        <h1 className="text-2xl font-black tracking-tight text-white">CAR CONTROL</h1>
-        <p className="text-base text-slate-300 mt-2 font-semibold">
-          {initError ? 'Falha ou demora na inicialização' : bootStepLabel || 'Carregando…'}
-        </p>
-
-        {showPrevCrashBanner && (
-          <div className="mt-4 max-w-xl w-full text-left rounded-2xl p-4 bg-amber-950/80 border border-amber-500/60 text-amber-100 flex flex-col space-y-2.5">
-            <div className="font-black text-sm sm:text-base">
-              O app não abriu corretamente da última vez
-            </div>
-            <div className="flex flex-wrap cockpit-wrap-2">
-              <button
-                type="button"
-                onClick={handleCopyCrashReport}
-                className="min-h-[44px] px-4 rounded-xl bg-amber-500 text-black font-black text-sm"
-              >
-                {copiedCrashReport ? 'Relatório copiado!' : 'Copiar relatório'}
-              </button>
-              <button
-                type="button"
-                onClick={() => setShowPrevCrashReport((v) => !v)}
-                className="min-h-[44px] px-4 rounded-xl bg-slate-800 border border-slate-600 text-white font-bold text-sm"
-              >
-                {showPrevCrashReport ? 'Ocultar relatório' : 'Ver relatório'}
-              </button>
-              <button
-                type="button"
-                onClick={handleDismissPrevCrash}
-                className="min-h-[44px] px-3 rounded-xl bg-black/30 text-amber-200 font-bold text-sm"
-              >
-                Fechar
-              </button>
-            </div>
-            {showPrevCrashReport && (
-              <pre className="p-3 rounded-xl bg-slate-950 text-slate-200 text-xs font-mono whitespace-pre-wrap break-words max-h-40 overflow-auto border border-slate-700">
-                {getPreviousCrashReportText()}
-              </pre>
-            )}
-          </div>
-        )}
-
-        <div className="mt-4 max-w-xl w-full flex flex-col items-center space-y-3">
-          {initError && (
-            <p className="text-sm sm:text-base font-bold text-red-200 bg-red-950/80 border border-red-500/50 rounded-2xl px-4 py-3 w-full">
-              {initError}
-            </p>
-          )}
-          <div className="flex flex-wrap items-center justify-center cockpit-wrap-3">
-            <button
-              type="button"
-              onClick={() => activateMemoryFallback('slow_loading')}
-              className="min-h-[52px] px-5 rounded-2xl bg-amber-500 text-black font-black text-base"
-            >
-              Abrir agora (exemplo)
-            </button>
-            <button
-              type="button"
-              onClick={() => setBootAttempt((n) => n + 1)}
-              className="min-h-[52px] px-5 rounded-2xl bg-blue-700 text-white font-black text-base"
-            >
-              Tentar novamente
-            </button>
-            <button
-              type="button"
-              onClick={() => setShowDetails((prev) => !prev)}
-              className="min-h-[52px] px-5 rounded-2xl bg-slate-700 border border-slate-500 text-slate-100 font-black text-base"
-            >
-              Ver detalhes
-            </button>
-          </div>
-          {showDetails && (
-            <pre className="mt-2 p-4 rounded-2xl bg-slate-900 border border-slate-700 text-slate-200 text-xs sm:text-sm text-left whitespace-pre-wrap break-words w-full max-h-[42vh] overflow-auto font-mono">
-              {getDiagnosticText(initError || undefined)}
-            </pre>
-          )}
-        </div>
-      </div>
-    );
+    return null;
   }
 
   if (!activeVehicle) {
     return (
-      <div className="cockpit-screen-min-h w-full cockpit-text-primary font-sans">
-        {dbFallbackBannerNode && (
-          <div className="max-w-4xl mx-auto px-4 pt-4">{dbFallbackBannerNode}</div>
+      <div
+        className="cockpit-screen-min-h w-full cockpit-text-primary font-sans"
+        style={{ paddingTop: 'env(safe-area-inset-top, 0px)' }}
+      >
+        {sampleModeBannerNode && (
+          <div className="max-w-4xl mx-auto px-4 pt-4">{sampleModeBannerNode}</div>
+        )}
+        {persistenceWarningBannerNode && (
+          <div className="max-w-4xl mx-auto px-4 pt-4">{persistenceWarningBannerNode}</div>
         )}
         {prevCrashBannerNode && (
           <div className="max-w-4xl mx-auto px-4 pt-4">{prevCrashBannerNode}</div>
         )}
-        <Suspense fallback={<ViewFallback />}>
-          <OnboardingView
-            onCreateVehicle={async (name, plate, km, tank, consumption, fuelLiters) => {
-              await createVehicle(name, plate, km, tank, consumption, fuelLiters);
-              await reloadData();
-            }}
-            onUseSampleData={async () => {
-              await loadSampleData();
-              await reloadData();
-            }}
-            onRestoredBackup={async () => {
-              await reloadData();
-            }}
-          />
-        </Suspense>
+        <ChunkErrorBoundary fallbackLabel="Não foi possível abrir o cadastro inicial">
+          <Suspense fallback={<ViewFallback />}>
+            <OnboardingView
+              onCreateVehicle={async (name, plate, km, tank, consumption, fuelLiters) => {
+                if (isSamplePreviewMode) return;
+                await createVehicle(name, plate, km, tank, consumption, fuelLiters);
+                await reloadData();
+              }}
+              onUseSampleData={async () => {
+                if (isSamplePreviewMode) return;
+                await loadSampleData();
+                await reloadData();
+              }}
+              onRestoredBackup={async () => {
+                if (isSamplePreviewMode) return;
+                await reloadData();
+              }}
+            />
+          </Suspense>
+        </ChunkErrorBoundary>
       </div>
     );
   }
@@ -867,7 +845,8 @@ function App() {
           currentTab === 'home' ? 'cockpit-main-home' : ''
         }`}
       >
-        {dbFallbackBannerNode}
+        {sampleModeBannerNode}
+        {persistenceWarningBannerNode}
         {prevCrashBannerNode}
         {autoRestoredDate && (
           <div className="mb-3 cockpit-alert-ok rounded-2xl px-4 py-3 flex items-center justify-between space-x-3">
@@ -886,162 +865,178 @@ function App() {
             </button>
           </div>
         )}
-        <Suspense fallback={<ViewFallback />}>
-          {currentTab === 'home' && (
-            <HomeView
-              vehicle={activeVehicle}
-              parts={partsWithStats}
-              onOpenFuelModal={() => setIsFuelModalOpen(true)}
-              onOpenFuelLevelModal={() => setIsFuelLevelModalOpen(true)}
-              onOpenKmModal={() => setIsKmModalOpen(true)}
-              onRenewPart={handleRenewPart}
-              onGoToParts={() => setCurrentTab('parts')}
+        <ChunkErrorBoundary fallbackLabel="Não foi possível abrir esta aba agora">
+          <Suspense fallback={<ViewFallback />}>
+            {currentTab === 'home' && (
+              <HomeView
+                vehicle={activeVehicle}
+                parts={partsWithStats}
+                onOpenFuelModal={() => setIsFuelModalOpen(true)}
+                onOpenFuelLevelModal={() => setIsFuelLevelModalOpen(true)}
+                onOpenKmModal={() => setIsKmModalOpen(true)}
+                onRenewPart={handleRenewPart}
+                onGoToParts={() => setCurrentTab('parts')}
+              />
+            )}
+
+            {currentTab === 'parts' && (
+              <PartsView
+                parts={partsWithStats}
+                onRenewPart={handleRenewPart}
+                onOpenConfigPart={(part) => {
+                  setEditingPart(part);
+                  setIsPartConfigOpen(true);
+                }}
+                onOpenNewPart={() => {
+                  setEditingPart(null);
+                  setIsPartConfigOpen(true);
+                }}
+              />
+            )}
+
+            {currentTab === 'vehicle' && (
+              <VehicleView
+                vehicles={vehicles}
+                activeVehicle={activeVehicle}
+                history={history}
+                onSelectVehicle={handleSelectVehicle}
+                onOpenAddVehicle={() => {
+                  setEditingVehicle(null);
+                  setIsVehicleModalOpen(true);
+                }}
+                onEditVehicle={(v) => {
+                  setEditingVehicle(v);
+                  setIsVehicleModalOpen(true);
+                }}
+                onOpenKmModal={() => setIsKmModalOpen(true)}
+                onOpenFuelLevelModal={() => setIsFuelLevelModalOpen(true)}
+                onOpenConsumptionModal={() => setIsConsumptionModalOpen(true)}
+              />
+            )}
+
+            {currentTab === 'settings' && (
+              <SettingsView
+                currentTheme={theme}
+                currentBgStyle={bgStyle}
+                activeVehicle={activeVehicle}
+                onThemeChange={handleThemeChange}
+                onBgStyleChange={handleBgStyleChange}
+                onReloadData={reloadData}
+              />
+            )}
+          </Suspense>
+        </ChunkErrorBoundary>
+      </main>
+
+      {/* Modais carregados sob demanda com retry automático */}
+      <ChunkErrorBoundary
+        overlay
+        fallbackLabel="Não foi possível abrir esta janela"
+        onDismiss={() => {
+          setIsFuelModalOpen(false);
+          setIsKmModalOpen(false);
+          setIsFuelLevelModalOpen(false);
+          setIsConsumptionModalOpen(false);
+          setIsVehicleModalOpen(false);
+          setIsPartConfigOpen(false);
+          setConfirmData((prev) => ({ ...prev, isOpen: false }));
+        }}
+      >
+        <Suspense fallback={null}>
+          {isFuelModalOpen && (
+            <NumericModal
+              isOpen={isFuelModalOpen}
+              title="Abastecimento"
+              subtitle={`Adicione os litros colocados no tanque (${formatNumber(activeVehicle.fuel_level)} / ${activeVehicle.tank_capacity} L)`}
+              initialValue={20}
+              unit="Litros"
+              allowDecimals={true}
+              quickAddOptions={[10, 20, 30]}
+              maxLimit={Math.max(0, activeVehicle.tank_capacity - activeVehicle.fuel_level)}
+              onConfirm={handleConfirmFuel}
+              onClose={() => setIsFuelModalOpen(false)}
             />
           )}
 
-          {currentTab === 'parts' && (
-            <PartsView
-              parts={partsWithStats}
-              onRenewPart={handleRenewPart}
-              onOpenConfigPart={(part) => {
-                setEditingPart(part);
-                setIsPartConfigOpen(true);
-              }}
-              onOpenNewPart={() => {
-                setEditingPart(null);
-                setIsPartConfigOpen(true);
-              }}
+          {isKmModalOpen && (
+            <NumericModal
+              isOpen={isKmModalOpen}
+              title="Atualizar Odômetro"
+              subtitle={`Odômetro atual registrado: ${formatNumber(activeVehicle.current_km)} km`}
+              initialValue={activeVehicle.current_km}
+              unit="km"
+              allowDecimals={false}
+              quickAddOptions={[100, 500, 1000]}
+              onConfirm={handleConfirmKm}
+              onClose={() => setIsKmModalOpen(false)}
             />
           )}
 
-          {currentTab === 'vehicle' && (
-            <VehicleView
-              vehicles={vehicles}
-              activeVehicle={activeVehicle}
-              history={history}
-              onSelectVehicle={handleSelectVehicle}
-              onOpenAddVehicle={() => {
+          {isFuelLevelModalOpen && (
+            <NumericModal
+              isOpen={isFuelLevelModalOpen}
+              title="Nível Atual do Tanque"
+              subtitle={`Capacidade total do veículo: ${activeVehicle.tank_capacity} Litros`}
+              initialValue={activeVehicle.fuel_level}
+              unit="Litros"
+              allowDecimals={true}
+              quickAddOptions={[-10, -5, 5, 10]}
+              maxLimit={activeVehicle.tank_capacity}
+              onConfirm={handleConfirmFuelLevel}
+              onClose={() => setIsFuelLevelModalOpen(false)}
+            />
+          )}
+
+          {isConsumptionModalOpen && (
+            <NumericModal
+              isOpen={isConsumptionModalOpen}
+              title="Consumo Médio"
+              subtitle="Média ponderada para cálculo de autonomia"
+              initialValue={activeVehicle.avg_consumption}
+              unit="km/L"
+              allowDecimals={true}
+              onConfirm={handleConfirmConsumption}
+              onClose={() => setIsConsumptionModalOpen(false)}
+            />
+          )}
+
+          {isVehicleModalOpen && (
+            <VehicleModal
+              isOpen={isVehicleModalOpen}
+              vehicleToEdit={editingVehicle}
+              onClose={() => {
+                setIsVehicleModalOpen(false);
                 setEditingVehicle(null);
-                setIsVehicleModalOpen(true);
               }}
-              onEditVehicle={(v) => {
-                setEditingVehicle(v);
-                setIsVehicleModalOpen(true);
-              }}
-              onOpenKmModal={() => setIsKmModalOpen(true)}
-              onOpenFuelLevelModal={() => setIsFuelLevelModalOpen(true)}
-              onOpenConsumptionModal={() => setIsConsumptionModalOpen(true)}
+              onSave={handleSaveVehicle}
             />
           )}
 
-          {currentTab === 'settings' && (
-            <SettingsView
-              currentTheme={theme}
-              currentBgStyle={bgStyle}
-              activeVehicle={activeVehicle}
-              onThemeChange={handleThemeChange}
-              onBgStyleChange={handleBgStyleChange}
-              onReloadData={reloadData}
+          {isPartConfigOpen && (
+            <PartConfigModal
+              isOpen={isPartConfigOpen}
+              partToEdit={editingPart}
+              currentVehicleKm={activeVehicle.current_km}
+              onClose={() => {
+                setIsPartConfigOpen(false);
+                setEditingPart(null);
+              }}
+              onSave={handleSavePartConfig}
+              onDelete={handleDeletePart}
+            />
+          )}
+
+          {confirmData.isOpen && (
+            <ConfirmModal
+              isOpen={confirmData.isOpen}
+              title={confirmData.title}
+              message={confirmData.message}
+              onConfirm={confirmData.onConfirm}
+              onCancel={() => setConfirmData((prev) => ({ ...prev, isOpen: false }))}
             />
           )}
         </Suspense>
-      </main>
-
-      {/* Modais carregados sob demanda */}
-      <Suspense fallback={null}>
-        {isFuelModalOpen && (
-          <NumericModal
-            isOpen={isFuelModalOpen}
-            title="Abastecimento"
-            subtitle={`Adicione os litros colocados no tanque (${formatNumber(activeVehicle.fuel_level)} / ${activeVehicle.tank_capacity} L)`}
-            initialValue={20}
-            unit="Litros"
-            allowDecimals={true}
-            quickAddOptions={[10, 20, 30]}
-            maxLimit={Math.max(0, activeVehicle.tank_capacity - activeVehicle.fuel_level)}
-            onConfirm={handleConfirmFuel}
-            onClose={() => setIsFuelModalOpen(false)}
-          />
-        )}
-
-        {isKmModalOpen && (
-          <NumericModal
-            isOpen={isKmModalOpen}
-            title="Atualizar Odômetro"
-            subtitle={`Odômetro atual registrado: ${formatNumber(activeVehicle.current_km)} km`}
-            initialValue={activeVehicle.current_km}
-            unit="km"
-            allowDecimals={false}
-            quickAddOptions={[100, 500, 1000]}
-            onConfirm={handleConfirmKm}
-            onClose={() => setIsKmModalOpen(false)}
-          />
-        )}
-
-        {isFuelLevelModalOpen && (
-          <NumericModal
-            isOpen={isFuelLevelModalOpen}
-            title="Nível Atual do Tanque"
-            subtitle={`Capacidade total do veículo: ${activeVehicle.tank_capacity} Litros`}
-            initialValue={activeVehicle.fuel_level}
-            unit="Litros"
-            allowDecimals={true}
-            quickAddOptions={[-10, -5, 5, 10]}
-            maxLimit={activeVehicle.tank_capacity}
-            onConfirm={handleConfirmFuelLevel}
-            onClose={() => setIsFuelLevelModalOpen(false)}
-          />
-        )}
-
-        {isConsumptionModalOpen && (
-          <NumericModal
-            isOpen={isConsumptionModalOpen}
-            title="Consumo Médio"
-            subtitle="Média ponderada para cálculo de autonomia"
-            initialValue={activeVehicle.avg_consumption}
-            unit="km/L"
-            allowDecimals={true}
-            onConfirm={handleConfirmConsumption}
-            onClose={() => setIsConsumptionModalOpen(false)}
-          />
-        )}
-
-        {isVehicleModalOpen && (
-          <VehicleModal
-            isOpen={isVehicleModalOpen}
-            vehicleToEdit={editingVehicle}
-            onClose={() => {
-              setIsVehicleModalOpen(false);
-              setEditingVehicle(null);
-            }}
-            onSave={handleSaveVehicle}
-          />
-        )}
-
-        {isPartConfigOpen && (
-          <PartConfigModal
-            isOpen={isPartConfigOpen}
-            partToEdit={editingPart}
-            currentVehicleKm={activeVehicle.current_km}
-            onClose={() => {
-              setIsPartConfigOpen(false);
-              setEditingPart(null);
-            }}
-            onSave={handleSavePartConfig}
-            onDelete={handleDeletePart}
-          />
-        )}
-
-        {confirmData.isOpen && (
-          <ConfirmModal
-            isOpen={confirmData.isOpen}
-            title={confirmData.title}
-            message={confirmData.message}
-            onConfirm={confirmData.onConfirm}
-            onCancel={() => setConfirmData((prev) => ({ ...prev, isOpen: false }))}
-          />
-        )}
-      </Suspense>
+      </ChunkErrorBoundary>
     </div>
   );
 }
